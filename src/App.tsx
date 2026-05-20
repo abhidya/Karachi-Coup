@@ -758,6 +758,7 @@ export function App() {
               <Panel eyebrow="Connection" title="Client snapshot">
                 <Stack gap="sm">
                   <p>Target room: {joinCode || 'Waiting for code'}</p>
+                  <p className="muted">Waiting for host to start the room.</p>
                   <p>Peer id: {clientSnapshot?.peerId ?? 'Not opened yet'}</p>
                   <p>Connected to: {clientSnapshot?.connectedTo ?? 'Not connected'}</p>
                   <p>Player id: {clientSnapshot?.playerId ?? 'Unassigned'}</p>
