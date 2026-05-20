@@ -1,50 +1,52 @@
-import type {
-  ActionType,
-  ConnectionCard,
-  ConnectionCardId,
-  GameId,
-  HostGameState,
-  PendingAction,
-  PlayerId,
-  PlayerState,
-  Role,
-} from './types';
+import type { ActionType, ConnectionCard, ConnectionCardId, GameId, HostGameState, PendingAction, PlayerId, PlayerState, Role } from './types';
 import { createDeck, seededShuffle, toGameId, toRoomCode } from './utils';
 
-export const actionCosts: Record<ActionType, number> = {
-  CHAI_PAISA: 0,
-  RISHTEDAAR_HELP: 0,
-  KIRAYA_COLLECTION: 0,
-  POLICE_WALA_RAID: 0,
-  BHAI_KA_SCENE: 3,
-  ZARDAAR_JUGAAD: 0,
-  FULL_BEIZZATI: 7,
+type ActionConfig = {
+  labelKey: ActionType;
+  cost: number;
+  claimedRole: Role | null;
+  needsTarget: boolean;
+  challengeable: boolean;
+  blockRoles: Role[];
 };
 
-export const actionRequirements: Record<ActionType, Role | null> = {
-  CHAI_PAISA: null,
-  RISHTEDAAR_HELP: null,
-  KIRAYA_COLLECTION: 'MALIK_SAAB',
-  POLICE_WALA_RAID: 'POLICE_WALA',
-  BHAI_KA_SCENE: 'BHAI',
-  ZARDAAR_JUGAAD: 'ZARDAAR_CHOR',
-  FULL_BEIZZATI: null,
+export const ACTION_CONFIG: Record<ActionType, ActionConfig> = {
+  CHAI_PAISA: { labelKey: 'CHAI_PAISA', cost: 0, claimedRole: null, needsTarget: false, challengeable: false, blockRoles: [] },
+  RISHTEDAAR_HELP: { labelKey: 'RISHTEDAAR_HELP', cost: 0, claimedRole: null, needsTarget: false, challengeable: false, blockRoles: ['MALIK_SAAB'] },
+  KIRAYA_COLLECTION: { labelKey: 'KIRAYA_COLLECTION', cost: 0, claimedRole: 'MALIK_SAAB', needsTarget: false, challengeable: true, blockRoles: [] },
+  POLICE_WALA_RAID: {
+    labelKey: 'POLICE_WALA_RAID',
+    cost: 0,
+    claimedRole: 'POLICE_WALA',
+    needsTarget: true,
+    challengeable: true,
+    blockRoles: ['POLICE_WALA', 'ZARDAAR_CHOR'],
+  },
+  BHAI_KA_SCENE: { labelKey: 'BHAI_KA_SCENE', cost: 3, claimedRole: 'BHAI', needsTarget: true, challengeable: true, blockRoles: ['MUMMA'] },
+  ZARDAAR_JUGAAD: { labelKey: 'ZARDAAR_JUGAAD', cost: 0, claimedRole: 'ZARDAAR_CHOR', needsTarget: false, challengeable: true, blockRoles: [] },
+  FULL_BEIZZATI: { labelKey: 'FULL_BEIZZATI', cost: 7, claimedRole: null, needsTarget: true, challengeable: false, blockRoles: [] },
 };
 
-export const blockRequirements: Partial<Record<ActionType, Role>> = {
-  RISHTEDAAR_HELP: 'MALIK_SAAB',
-  POLICE_WALA_RAID: 'MUMMA',
-  BHAI_KA_SCENE: 'MUMMA',
-  ZARDAAR_JUGAAD: 'MUMMA',
-};
+export const actionCosts: Record<ActionType, number> = Object.fromEntries(
+  Object.entries(ACTION_CONFIG).map(([key, value]) => [key, value.cost]),
+) as Record<ActionType, number>;
+
+export const actionRequirements: Record<ActionType, Role | null> = Object.fromEntries(
+  Object.entries(ACTION_CONFIG).map(([key, value]) => [key, value.claimedRole]),
+) as Record<ActionType, Role | null>;
+
+export const blockRolesByAction: Partial<Record<ActionType, Role[]>> = Object.fromEntries(
+  Object.entries(ACTION_CONFIG)
+    .filter(([, value]) => value.blockRoles.length > 0)
+    .map(([key, value]) => [key, value.blockRoles]),
+) as Partial<Record<ActionType, Role[]>>;
 
 export function createHostGameState(roomId: string, gameId: string): HostGameState {
-  const roomCode = toRoomCode(roomId);
-  const typedGameId = toGameId(gameId);
   return {
-    roomCode,
+    roomCode: toRoomCode(roomId),
     roomId,
-    gameId: typedGameId,
+    gameId: toGameId(gameId),
+    seq: 0,
     phase: 'LOBBY',
     playersById: {},
     turnOrder: [],
@@ -69,53 +71,33 @@ export function isPlayerAlive(player: PlayerState | undefined): player is Player
   return Boolean(player && !player.eliminated && player.hiddenConnections.length > 0);
 }
 
-export function activePlayer(state: HostGameState): PlayerState | undefined {
-  return state.activePlayerId ? state.playersById[state.activePlayerId] : undefined;
-}
-
-export function firstAlivePlayerId(state: HostGameState): PlayerId | null {
-  for (const playerId of state.turnOrder) {
-    if (isPlayerAlive(state.playersById[playerId])) {
-      return playerId;
-    }
-  }
-  return null;
-}
-
 export function livingPlayerIds(state: HostGameState): PlayerId[] {
   return state.turnOrder.filter((playerId) => isPlayerAlive(state.playersById[playerId]));
 }
 
+export function firstAlivePlayerId(state: HostGameState): PlayerId | null {
+  return livingPlayerIds(state)[0] ?? null;
+}
+
 export function nextLivingPlayerId(state: HostGameState, currentPlayerId: PlayerId): PlayerId | null {
-  if (state.turnOrder.length === 0) {
-    return null;
-  }
-  const startIndex = state.turnOrder.findIndex((playerId) => playerId === currentPlayerId);
-  if (startIndex < 0) {
-    return null;
-  }
+  if (state.turnOrder.length === 0) return null;
+  const startIndex = state.turnOrder.indexOf(currentPlayerId);
+  if (startIndex < 0) return null;
   for (let offset = 1; offset <= state.turnOrder.length; offset += 1) {
     const candidate = state.turnOrder[(startIndex + offset) % state.turnOrder.length];
-    if (candidate && isPlayerAlive(state.playersById[candidate])) {
-      return candidate;
-    }
+    if (candidate && isPlayerAlive(state.playersById[candidate])) return candidate;
   }
   return null;
 }
 
 export function applyRupees(state: HostGameState, playerId: PlayerId, delta: number): HostGameState {
   const player = state.playersById[playerId];
-  if (!player) {
-    return state;
-  }
+  if (!player) return state;
   return {
     ...state,
     playersById: {
       ...state.playersById,
-      [playerId]: {
-        ...player,
-        rupees: Math.max(0, player.rupees + delta),
-      },
+      [playerId]: { ...player, rupees: Math.max(0, player.rupees + delta) },
     },
   };
 }
@@ -131,29 +113,26 @@ export function replacePlayer(state: HostGameState, nextPlayer: PlayerState): Ho
 }
 
 export function discardCards(state: HostGameState, cards: readonly ConnectionCard[]): HostGameState {
-  if (cards.length === 0) {
-    return state;
-  }
+  if (cards.length === 0) return state;
   return { ...state, discardPile: [...state.discardPile, ...cards] };
+}
+
+export function shuffleIntoDeck(state: HostGameState, cards: readonly ConnectionCard[]): HostGameState {
+  if (cards.length === 0) return state;
+  const shuffled = seededShuffle([...state.deck, ...cards], `${state.roomId}:${state.gameId}:deck`);
+  return { ...state, deck: shuffled };
 }
 
 export function drawCards(state: HostGameState, count: number): { cards: ConnectionCard[]; state: HostGameState } {
   const cards = state.deck.slice(0, count);
-  return {
-    cards,
-    state: { ...state, deck: state.deck.slice(cards.length) },
-  };
+  return { cards, state: { ...state, deck: state.deck.slice(cards.length) } };
 }
 
 export function removeConnectionFromPlayer(state: HostGameState, playerId: PlayerId, connectionId: ConnectionCardId): HostGameState {
   const player = state.playersById[playerId];
-  if (!player) {
-    return state;
-  }
+  if (!player) return state;
   const index = player.hiddenConnections.findIndex((card) => card.id === connectionId);
-  if (index < 0) {
-    return state;
-  }
+  if (index < 0) return state;
   const removed = player.hiddenConnections[index]!;
   const nextHidden = [...player.hiddenConnections.slice(0, index), ...player.hiddenConnections.slice(index + 1)];
   return replacePlayer(
@@ -161,7 +140,7 @@ export function removeConnectionFromPlayer(state: HostGameState, playerId: Playe
     {
       ...player,
       hiddenConnections: nextHidden,
-      revealedConnections: [...player.revealedConnections, removed],
+      revealedConnections: [...player.revealedConnections, removed.role],
       eliminated: nextHidden.length === 0,
     },
   );
@@ -169,9 +148,7 @@ export function removeConnectionFromPlayer(state: HostGameState, playerId: Playe
 
 export function eliminatePlayer(state: HostGameState, playerId: PlayerId): HostGameState {
   const player = state.playersById[playerId];
-  if (!player || player.eliminated) {
-    return state;
-  }
+  if (!player || player.eliminated) return state;
   return replacePlayer(state, { ...player, eliminated: true });
 }
 
@@ -181,17 +158,17 @@ export function createPendingAction(
   actionType: ActionType,
   targetId: PlayerId | null,
 ): PendingAction {
-  const claimedRole = actionRequirements[actionType];
+  const config = ACTION_CONFIG[actionType];
   return {
     actionId,
     actorId,
     actionType,
     targetId,
-    claimedRole,
-    claimRole: claimedRole,
-    cost: actionCosts[actionType],
-    challengeable: claimedRole !== null || actionType === 'RISHTEDAAR_HELP' || actionType === 'FULL_BEIZZATI',
-    blockable: actionType in blockRequirements,
+    claimedRole: config.claimedRole,
+    cost: config.cost,
+    challengeable: config.challengeable,
+    blockRoles: [...config.blockRoles],
+    needsTarget: config.needsTarget,
   };
 }
 

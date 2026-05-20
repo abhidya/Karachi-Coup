@@ -6,9 +6,15 @@ import type {
   ConnectionCard,
   HostGameState,
   PlayerId,
+  PendingAction,
+  PendingBlock,
+  PendingBurn,
+  PendingChallenge,
+  PendingJugaad,
+  Role,
   ValidationIssue,
 } from './types';
-import { actionCosts, actionRequirements, blockRequirements, getPlayer, isPlayerAlive } from './rules';
+import { ACTION_CONFIG, actionCosts, blockRolesByAction, getPlayer, isPlayerAlive } from './rules';
 
 function issue(path: string, message: string): ValidationIssue {
   return { path, message };
@@ -29,6 +35,61 @@ function validatePlayerCardSet(cards: readonly ConnectionCard[], path: string, i
   }
 }
 
+function validatePlayerRevealedRoles(roles: readonly unknown[], path: string, issues: ValidationIssue[]): void {
+  for (const [index, role] of roles.entries()) {
+    if (typeof role !== 'string' || !(['MALIK_SAAB', 'BHAI', 'POLICE_WALA', 'MUMMA', 'ZARDAAR_CHOR'] as readonly Role[]).includes(role as Role)) {
+      issues.push(issue(`${path}[${index}]`, 'Invalid revealed connection role.'));
+    }
+  }
+}
+
+function validatePendingAction(action: PendingAction, path: string, issues: ValidationIssue[]): void {
+  if (typeof action.actionId !== 'string' || action.actionId.length === 0) {
+    issues.push(issue(`${path}.actionId`, 'actionId must be a non-empty string.'));
+  }
+  if (!Number.isFinite(action.cost) || action.cost < 0) {
+    issues.push(issue(`${path}.cost`, 'cost must be a non-negative number.'));
+  }
+  if (!Array.isArray(action.blockRoles)) {
+    issues.push(issue(`${path}.blockRoles`, 'blockRoles must be an array.'));
+  }
+  for (const [index, role] of action.blockRoles.entries()) {
+    if (typeof role !== 'string') {
+      issues.push(issue(`${path}.blockRoles[${index}]`, 'Invalid block role.'));
+    }
+  }
+}
+
+function validatePendingChallenge(challenge: PendingChallenge, path: string, issues: ValidationIssue[]): void {
+  if (typeof challenge.actionId !== 'string' || challenge.actionId.length === 0) {
+    issues.push(issue(`${path}.actionId`, 'actionId must be a non-empty string.'));
+  }
+  if (typeof challenge.claimedRole !== 'string') {
+    issues.push(issue(`${path}.claimedRole`, 'claimedRole must be present.'));
+  }
+}
+
+function validatePendingBlock(block: PendingBlock, path: string, issues: ValidationIssue[]): void {
+  if (typeof block.actionId !== 'string' || block.actionId.length === 0) {
+    issues.push(issue(`${path}.actionId`, 'actionId must be a non-empty string.'));
+  }
+  if (typeof block.blockingRole !== 'string') {
+    issues.push(issue(`${path}.blockingRole`, 'blockingRole must be present.'));
+  }
+}
+
+function validatePendingBurn(burn: PendingBurn, path: string, issues: ValidationIssue[]): void {
+  if (typeof burn.playerId !== 'string') {
+    issues.push(issue(`${path}.playerId`, 'playerId must be present.'));
+  }
+}
+
+function validatePendingJugaad(jugaad: PendingJugaad, path: string, issues: ValidationIssue[]): void {
+  if (!Array.isArray(jugaad.drawnConnections) || jugaad.drawnConnections.length !== 2) {
+    issues.push(issue(`${path}.drawnConnections`, 'drawnConnections must contain exactly two cards.'));
+  }
+}
+
 export function validateGameState(state: HostGameState): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
@@ -38,7 +99,10 @@ export function validateGameState(state: HostGameState): ValidationIssue[] {
   if (typeof state.gameId !== 'string' || state.gameId.length === 0) {
     issues.push(issue('gameId', 'gameId must be a non-empty string.'));
   }
-  if (!['LOBBY', 'TURN_START', 'CHALLENGE_WINDOW', 'AWAITING_BURN', 'AWAITING_JUGAAD_RETURN', 'GAME_OVER'].includes(state.phase)) {
+  if (!Number.isInteger(state.seq) || state.seq < 0) {
+    issues.push(issue('seq', 'seq must be a non-negative integer.'));
+  }
+  if (!['LOBBY', 'DEALING', 'TURN_START', 'ACTION_DECLARED', 'CHALLENGE_WINDOW', 'BLOCK_WINDOW', 'AWAITING_BURN', 'AWAITING_JUGAAD_RETURN', 'RESOLVE_ACTION', 'TURN_END', 'GAME_OVER'].includes(state.phase)) {
     issues.push(issue('phase', 'Invalid phase.'));
   }
 
@@ -55,7 +119,7 @@ export function validateGameState(state: HostGameState): ValidationIssue[] {
       issues.push(issue(`playersById.${playerId}.rupees`, 'rupees must be a non-negative integer.'));
     }
     validatePlayerCardSet(player.hiddenConnections, `playersById.${playerId}.hiddenConnections`, issues);
-    validatePlayerCardSet(player.revealedConnections, `playersById.${playerId}.revealedConnections`, issues);
+    validatePlayerRevealedRoles(player.revealedConnections, `playersById.${playerId}.revealedConnections`, issues);
     if (player.eliminated && player.hiddenConnections.length > 0) {
       issues.push(issue(`playersById.${playerId}.eliminated`, 'Eliminated players must have no hidden connections.'));
     }
@@ -70,13 +134,24 @@ export function validateGameState(state: HostGameState): ValidationIssue[] {
   if (state.winnerId !== null && !state.playersById[state.winnerId]) {
     issues.push(issue('winnerId', 'Winner must exist.'));
   }
+  if (state.pendingAction) {
+    validatePendingAction(state.pendingAction, 'pendingAction', issues);
+  }
+  if (state.pendingChallenge) {
+    validatePendingChallenge(state.pendingChallenge, 'pendingChallenge', issues);
+  }
+  if (state.pendingBlock) {
+    validatePendingBlock(state.pendingBlock, 'pendingBlock', issues);
+  }
+  if (state.pendingBurn) {
+    validatePendingBurn(state.pendingBurn, 'pendingBurn', issues);
+  }
+  if (state.pendingJugaad) {
+    validatePendingJugaad(state.pendingJugaad, 'pendingJugaad', issues);
+  }
 
-  const totalCards = [
-    ...state.deck,
-    ...state.discardPile,
-    ...Object.values(state.playersById).flatMap((player) => [...player.hiddenConnections, ...player.revealedConnections]),
-  ];
-  if (totalCards.length !== 15) {
+  const totalCards = state.deck.length + state.discardPile.length + Object.values(state.playersById).reduce((sum, player) => sum + player.hiddenConnections.length, 0);
+  if (totalCards !== 15) {
     issues.push(issue('cards', 'A complete game state must account for all 15 connection cards.'));
   }
 
@@ -102,12 +177,16 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
     if (player.rupees >= 10 && message.actionType !== 'FULL_BEIZZATI') {
       return { ok: false, reason: 'Players with 10+ rupees must use Full Beizzati.' };
     }
+    const config = ACTION_CONFIG[message.actionType];
     const cost = actionCosts[message.actionType];
     if (player.rupees < cost) {
       return { ok: false, reason: 'Not enough rupees for that action.' };
     }
-    if (message.actionType !== 'CHAI_PAISA' && message.actionType !== 'RISHTEDAAR_HELP' && !actionRequirements[message.actionType] && message.actionType !== 'FULL_BEIZZATI') {
-      return { ok: false, reason: 'Unknown action.' };
+    if (config.needsTarget && !message.targetId) {
+      return { ok: false, reason: 'That action needs a target.' };
+    }
+    if (!config.needsTarget && message.targetId !== undefined && message.targetId !== null) {
+      return { ok: false, reason: 'That action does not take a target.' };
     }
     return { ok: true };
   }
@@ -119,23 +198,26 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
     return { ok: state.phase === 'CHALLENGE_WINDOW', reason: state.phase === 'CHALLENGE_WINDOW' ? undefined : 'No challenge window is open.' };
   }
   if (message.type === 'BLOCK') {
-    if (state.phase !== 'CHALLENGE_WINDOW' || !state.pendingAction) {
-      return { ok: false, reason: 'Blocks are only legal during challenge windows.' };
+    if (state.phase !== 'BLOCK_WINDOW' || !state.pendingAction) {
+      return { ok: false, reason: 'Blocks are only legal during block windows.' };
     }
-    const required = blockRequirements[state.pendingAction.actionType];
-    if (required && required !== message.role) {
+    const required = blockRolesByAction[state.pendingAction.actionType] ?? [];
+    if (required.length > 0 && !required.includes(message.role)) {
       return { ok: false, reason: 'Illegal block role.' };
     }
     return { ok: true };
   }
   if (message.type === 'PASS_BLOCK') {
-    return { ok: state.phase === 'CHALLENGE_WINDOW' || state.phase === 'AWAITING_BURN', reason: state.phase === 'CHALLENGE_WINDOW' || state.phase === 'AWAITING_BURN' ? undefined : 'No block window is open.' };
+    return { ok: state.phase === 'BLOCK_WINDOW', reason: state.phase === 'BLOCK_WINDOW' ? undefined : 'No block window is open.' };
   }
   if (message.type === 'CHOOSE_CONNECTION_TO_BURN') {
     return { ok: state.phase === 'AWAITING_BURN', reason: state.phase === 'AWAITING_BURN' ? undefined : 'No burn is pending.' };
   }
   if (message.type === 'JUGAAD_RETURN') {
-    return { ok: state.phase === 'AWAITING_JUGAAD_RETURN' && message.connectionIds.length === 2, reason: state.phase === 'AWAITING_JUGAAD_RETURN' ? undefined : 'No jugaad return is pending.' };
+    return {
+      ok: state.phase === 'AWAITING_JUGAAD_RETURN' && message.returnedConnectionIds.length === 2,
+      reason: state.phase === 'AWAITING_JUGAAD_RETURN' ? undefined : 'No jugaad return is pending.',
+    };
   }
 
   return { ok: false, reason: 'Unsupported message.' };

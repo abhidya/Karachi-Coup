@@ -14,6 +14,7 @@ export const ROLE_THEME: Readonly<Record<Role, { label: string; color: string; d
 };
 
 export const labels = {
+  roleTheme: ROLE_THEME,
   actionLabels: {
     CHAI_PAISA: 'Chai Paisa',
     RISHTEDAAR_HELP: 'Rishtedaar Help',
@@ -25,10 +26,15 @@ export const labels = {
   } satisfies Record<ActionType, string>,
   phaseLabels: {
     LOBBY: 'Lobby',
+    DEALING: 'Dealing',
     TURN_START: 'Turn Start',
+    ACTION_DECLARED: 'Action Declared',
     CHALLENGE_WINDOW: 'Call Bakwaas Window',
+    BLOCK_WINDOW: 'Block Window',
     AWAITING_BURN: 'Burn Connection',
     AWAITING_JUGAAD_RETURN: 'Zardaar Jugaad Return',
+    RESOLVE_ACTION: 'Resolve Action',
+    TURN_END: 'Turn End',
     GAME_OVER: 'Game Over',
   } satisfies Record<GamePhase, string>,
 } as const;

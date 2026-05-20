@@ -1,3 +1,25 @@
+import { createActionEvent, reducer } from '../game/reducer';
+import { createBasePlayer, toPlayerId } from '../game/utils';
+import { toPublicGameState, toPrivatePlayerState } from '../game/snapshots';
+import { validateClientMessage } from '../game/validation';
+import type {
+  ClientJoinMessage,
+  ClientMessage,
+  ClientResyncMessage,
+  GameEvent,
+  HostLobbyPlayerView,
+  HostGameState,
+  PrivatePlayerState,
+  PublicGameState,
+  ServerMessage,
+  ServerPrivateStateMessage,
+  ServerPublicStateMessage,
+  ServerWelcomeMessage,
+  PlayerId,
+} from '../game/types';
+import { createHostGameState } from '../game/rules';
+import { hostStorageKey, readLocalStorage, writeLocalStorage } from './storage';
+
 type PeerModule = {
   default: new (id?: string, options?: Record<string, unknown>) => HostPeerInstance;
 };
@@ -16,6 +38,15 @@ type HostConnection = {
   close: () => void;
 };
 
+type JoinedConnection = {
+  connection: HostConnection;
+  playerId: PlayerId | null;
+};
+
+type PersistedHostState = {
+  state: HostGameState;
+};
+
 export type HostNetworkPhase = 'idle' | 'starting' | 'ready' | 'error' | 'closed';
 
 export type HostNetworkSnapshot = {
@@ -23,28 +54,24 @@ export type HostNetworkSnapshot = {
   roomId: string;
   peerId: string | null;
   peers: string[];
+  players: HostLobbyPlayerView[];
+  publicState: PublicGameState;
+  privateStates: Record<string, PrivatePlayerState>;
   lastEvent: string | null;
+  lastMessage?: string | null;
   error: string | null;
+  restored: boolean;
 };
 
 export type PeerHostHandle = {
   readonly snapshot: HostNetworkSnapshot;
   subscribe(listener: (snapshot: HostNetworkSnapshot) => void): () => void;
+  startGame(): void;
+  resetRoom(): void;
   broadcast(data: unknown): void;
   send(peerId: string, data: unknown): void;
   destroy(): void;
 };
-
-function loadSnapshot(roomId: string): HostNetworkSnapshot {
-  return {
-    phase: 'starting',
-    roomId,
-    peerId: null,
-    peers: [],
-    lastEvent: null,
-    error: null,
-  };
-}
 
 function stringifyEvent(value: unknown) {
   if (typeof value === 'string') return value;
@@ -55,6 +82,160 @@ function stringifyEvent(value: unknown) {
   }
 }
 
+function safeTrim(value: string | null | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : fallback;
+}
+
+function connectionKey(roomId: string) {
+  return hostStorageKey(roomId);
+}
+
+function loadStoredState(roomId: string): HostGameState | null {
+  return readLocalStorage<PersistedHostState>(connectionKey(roomId))?.state ?? null;
+}
+
+function persistState(roomId: string, state: HostGameState): void {
+  writeLocalStorage<PersistedHostState>(connectionKey(roomId), { state });
+}
+
+function makeGameId(roomId: string): string {
+  return `game-${roomId.toUpperCase()}`;
+}
+
+function makePlayerId(roomId: string, clientNonce: string, existingIds: Set<PlayerId>): PlayerId {
+  const basis = `${roomId}-${clientNonce.slice(-8)}`.replace(/[^A-Za-z0-9-]/g, '');
+  let suffix = 0;
+  let candidate = toPlayerId(basis || `${roomId}-player`);
+  while (existingIds.has(candidate)) {
+    suffix += 1;
+    candidate = toPlayerId(`${basis || `${roomId}-player`}-${suffix}`);
+  }
+  return candidate;
+}
+
+function buildPlayerViews(state: HostGameState): HostLobbyPlayerView[] {
+  return state.turnOrder.map((playerId) => {
+    const player = state.playersById[playerId]!;
+    return {
+      playerId,
+      name: player.name,
+      connected: player.connected,
+      rupees: player.rupees,
+      hiddenConnectionCount: player.hiddenConnections.length,
+      eliminated: player.eliminated,
+    };
+  });
+}
+
+function buildPrivateStates(state: HostGameState): Record<string, PrivatePlayerState> {
+  const result: Record<string, PrivatePlayerState> = {};
+  for (const playerId of state.turnOrder) {
+    result[playerId] = toPrivatePlayerState(state, playerId);
+  }
+  return result;
+}
+
+function buildSnapshot(
+  phase: HostNetworkPhase,
+  roomId: string,
+  peerId: string | null,
+  joinedPeers: Map<string, JoinedConnection>,
+  state: HostGameState,
+  lastEvent: string | null,
+  error: string | null,
+  restored: boolean,
+): HostNetworkSnapshot {
+  return {
+    phase,
+    roomId,
+    peerId,
+    peers: [...joinedPeers.keys()],
+    players: buildPlayerViews(state),
+    publicState: toPublicGameState(state),
+    privateStates: buildPrivateStates(state),
+    lastEvent,
+    error,
+    restored,
+  };
+}
+
+function isJoinMessage(value: unknown): value is ClientJoinMessage {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      (value as ClientJoinMessage).type === 'JOIN' &&
+      typeof (value as ClientJoinMessage).roomCode === 'string' &&
+      typeof (value as ClientJoinMessage).displayName === 'string' &&
+      typeof (value as ClientJoinMessage).clientNonce === 'string',
+  );
+}
+
+function isResyncMessage(value: unknown): value is ClientResyncMessage {
+  return Boolean(value && typeof value === 'object' && (value as ClientResyncMessage).type === 'REQUEST_RESYNC');
+}
+
+function isKnownClientMessage(value: unknown): value is ClientMessage {
+  return Boolean(value && typeof value === 'object' && typeof (value as ClientMessage).type === 'string');
+}
+
+function mapMessageToEvent(
+  state: HostGameState,
+  message: Exclude<ClientMessage, ClientJoinMessage | ClientResyncMessage>,
+  playerId: PlayerId,
+): GameEvent | null {
+  switch (message.type) {
+    case 'DECLARE_ACTION':
+      return createActionEvent(playerId, message.actionType, message.targetId ? toPlayerId(message.targetId) : null);
+    case 'CHALLENGE':
+      return { type: 'CHALLENGE', challengerId: playerId };
+    case 'PASS_CHALLENGE':
+      return { type: 'PASS_CHALLENGE', playerId };
+    case 'BLOCK':
+      if (!state.pendingAction) {
+        return null;
+      }
+      return {
+        type: 'BLOCK',
+        block: {
+          actionId: state.pendingAction.actionId,
+          blockerId: playerId,
+          blockingRole: message.role,
+          targetId: state.pendingAction.targetId,
+          eligibleChallengers: state.turnOrder.filter((candidate) => candidate !== playerId),
+          responses: {},
+        },
+      };
+    case 'PASS_BLOCK':
+      return { type: 'PASS_BLOCK', playerId };
+    case 'CHOOSE_CONNECTION_TO_BURN':
+      return { type: 'CHOOSE_CONNECTION_TO_BURN', playerId, connectionId: message.connectionId as never };
+    case 'JUGAAD_RETURN':
+      return { type: 'JUGAAD_RETURN', playerId, returnedConnectionIds: message.returnedConnectionIds as never };
+    default:
+      return null;
+  }
+}
+
+function sendMessage(connection: HostConnection, message: ServerMessage): void {
+  if (connection.open) {
+    connection.send(message);
+  }
+}
+
+function syncConnection(
+  connection: HostConnection,
+  playerId: PlayerId,
+  state: HostGameState,
+): void {
+  const welcome: ServerWelcomeMessage = { type: 'WELCOME', roomCode: state.roomCode, playerId };
+  const publicState: ServerPublicStateMessage = { type: 'PUBLIC_STATE', state: toPublicGameState(state) };
+  const privateState: ServerPrivateStateMessage = { type: 'PRIVATE_STATE', state: toPrivatePlayerState(state, playerId) };
+  sendMessage(connection, welcome);
+  sendMessage(connection, publicState);
+  sendMessage(connection, privateState);
+}
+
 export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   if (typeof window === 'undefined') {
     throw new Error('PeerJS host requires a browser environment.');
@@ -62,17 +243,125 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
 
   const { default: Peer } = (await import('peerjs')) as PeerModule;
   const listeners = new Set<(snapshot: HostNetworkSnapshot) => void>();
-  const connections = new Map<string, HostConnection>();
-  let snapshot = loadSnapshot(roomId);
+  const connections = new Map<string, JoinedConnection>();
+  const storedState = loadStoredState(roomId);
+  let state = storedState ?? createHostGameState(roomId, makeGameId(roomId));
   let peer: HostPeerInstance | null = null;
+  let snapshot = buildSnapshot('starting', roomId, null, connections, state, null, null, Boolean(storedState));
+  let destroyed = false;
 
-  const emit = () => {
-    const next: HostNetworkSnapshot = {
-      ...snapshot,
-      peers: Array.from(connections.keys()),
+  const emit = (nextPhase: HostNetworkPhase = snapshot.phase, lastEvent = snapshot.lastEvent, error = snapshot.error) => {
+    persistState(roomId, state);
+    snapshot = buildSnapshot(nextPhase, roomId, peer?.id ?? null, connections, state, lastEvent, error, snapshot.restored);
+    listeners.forEach((listener) => listener(snapshot));
+  };
+
+  const broadcastState = (eventLabel: string) => {
+    const publicState = toPublicGameState(state);
+    const publicMessage: ServerPublicStateMessage = { type: 'PUBLIC_STATE', state: publicState };
+    connections.forEach(({ connection, playerId }) => {
+      sendMessage(connection, publicMessage);
+      if (playerId && state.playersById[playerId]) {
+        sendMessage(connection, { type: 'PRIVATE_STATE', state: toPrivatePlayerState(state, playerId) });
+      }
+    });
+    emit(snapshot.phase === 'ready' ? 'ready' : snapshot.phase, eventLabel, null);
+  };
+
+  const setState = (nextState: HostGameState, eventLabel: string) => {
+    state = nextState;
+    broadcastState(eventLabel);
+  };
+
+  const joinPlayer = (connection: HostConnection, message: ClientJoinMessage) => {
+    const normalizedRoom = message.roomCode.trim().toUpperCase();
+    if (normalizedRoom !== state.roomCode) {
+      sendMessage(connection, { type: 'ERROR', message: `Room mismatch: expected ${state.roomCode}.` });
+      return;
+    }
+
+    const playerName = safeTrim(message.displayName, 'Guest');
+    const existingId = Object.entries(state.playersById).find(([, player]) => player.clientNonce === message.clientNonce)?.[0] as
+      | PlayerId
+      | undefined;
+    const playerId: PlayerId =
+      existingId ??
+      makePlayerId(roomId, message.clientNonce, new Set(Object.keys(state.playersById).map((value) => toPlayerId(value))));
+    const previousPlayer = state.playersById[playerId];
+    const nextPlayer =
+      previousPlayer ?? {
+        ...createBasePlayer(playerId, playerName),
+        clientNonce: message.clientNonce as never,
+      };
+
+    state = {
+      ...state,
+      playersById: {
+        ...state.playersById,
+        [playerId]: {
+          ...nextPlayer,
+          name: playerName,
+          clientNonce: message.clientNonce as never,
+          connected: true,
+        },
+      },
+      turnOrder: state.turnOrder.includes(playerId) ? state.turnOrder : [...state.turnOrder, playerId],
+      log: [
+        { id: `${Date.now()}-${playerId}`, text: `${playerName} joined the room.` },
+        ...state.log,
+      ].slice(0, 12),
     };
-    snapshot = next;
-    listeners.forEach((listener) => listener(next));
+
+    connections.set(connection.peer, { connection, playerId });
+    syncConnection(connection, playerId, state);
+    broadcastState(`host:join:${playerId}`);
+  };
+
+  const handleMessage = (connection: HostConnection, raw: unknown) => {
+    if (isJoinMessage(raw)) {
+      joinPlayer(connection, raw);
+      return;
+    }
+
+    if (isResyncMessage(raw)) {
+      const existing = connections.get(connection.peer);
+      if (existing?.playerId) {
+        syncConnection(connection, existing.playerId, state);
+      } else {
+        sendMessage(connection, { type: 'ERROR', message: 'Join before requesting a resync.' });
+      }
+      return;
+    }
+
+    if (!isKnownClientMessage(raw)) {
+      sendMessage(connection, { type: 'ERROR', message: 'Unsupported client message.' });
+      return;
+    }
+
+    const joined = connections.get(connection.peer);
+    if (!joined?.playerId) {
+      sendMessage(connection, { type: 'ERROR', message: 'Send JOIN before gameplay messages.' });
+      return;
+    }
+
+    const playerId = joined.playerId;
+    const validation = validateClientMessage(state, playerId, raw);
+    if (!validation.ok) {
+      sendMessage(connection, { type: 'ERROR', message: validation.reason ?? 'Message rejected.' });
+      return;
+    }
+
+    const event = mapMessageToEvent(state, raw as Exclude<ClientMessage, ClientJoinMessage | ClientResyncMessage>, playerId);
+    if (!event) {
+      sendMessage(connection, { type: 'ERROR', message: 'Unsupported client message.' });
+      return;
+    }
+
+    const nextState = reducer(state, event);
+    if (nextState !== state) {
+      state = nextState;
+      broadcastState(`host:event:${raw.type}`);
+    }
   };
 
   try {
@@ -83,15 +372,13 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       },
     });
   } catch (error) {
-    // Fail-safe for browsers/tests where PeerJS cannot construct a host peer yet
-    // (for example, unsupported WebRTC surfaces or blocked runtime permissions).
     snapshot = {
       ...snapshot,
       phase: 'error',
       error: error instanceof Error ? error.message : 'Unable to start host peer.',
       lastEvent: 'host:init:error',
     };
-    emit();
+    listeners.forEach((listener) => listener(snapshot));
     return {
       get snapshot() {
         return snapshot;
@@ -101,56 +388,76 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
         listener(snapshot);
         return () => listeners.delete(listener);
       },
+      startGame() {},
+      resetRoom() {},
       broadcast() {},
       send() {},
       destroy() {},
     };
   }
 
-  peer.on('open', (peerId: string) => {
+  peer.on('open', (peerId: unknown) => {
+    if (destroyed) {
+      return;
+    }
+
     snapshot = {
       ...snapshot,
       phase: 'ready',
-      peerId,
+      peerId: typeof peerId === 'string' ? peerId : null,
       lastEvent: 'host:open',
       error: null,
     };
-    emit();
+    listeners.forEach((listener) => listener(snapshot));
+    broadcastState('host:open');
   });
 
-  peer.on('connection', (connection: HostConnection) => {
-    connections.set(connection.peer, connection);
+  peer.on('connection', (connection: unknown) => {
+    const typedConnection = connection as HostConnection;
+    connections.set(typedConnection.peer, { connection: typedConnection, playerId: null });
     snapshot = {
       ...snapshot,
-      lastEvent: `host:connection:${connection.peer}`,
+      lastEvent: `host:connection:${typedConnection.peer}`,
     };
-    emit();
+    listeners.forEach((listener) => listener(snapshot));
 
-    connection.on('data', (data: unknown) => {
-      snapshot = {
-        ...snapshot,
-        lastEvent: `host:data:${connection.peer}:${stringifyEvent(data)}`,
-      };
-      emit();
+    typedConnection.on('data', (data: unknown) => {
+      handleMessage(typedConnection, data);
     });
 
-    connection.on('close', () => {
-      connections.delete(connection.peer);
-      snapshot = {
-        ...snapshot,
-        lastEvent: `host:close:${connection.peer}`,
-      };
-      emit();
+    typedConnection.on('close', () => {
+      const joined = connections.get(typedConnection.peer);
+      connections.delete(typedConnection.peer);
+      if (joined?.playerId) {
+        const player = state.playersById[joined.playerId];
+        if (player) {
+          state = {
+            ...state,
+            playersById: {
+              ...state.playersById,
+              [joined.playerId]: {
+                ...player,
+                connected: false,
+              },
+            },
+            log: [
+              { id: `${Date.now()}-${joined.playerId}-left`, text: `${player.name} disconnected.` },
+              ...state.log,
+            ].slice(0, 12),
+          };
+        }
+      }
+      broadcastState(`host:close:${typedConnection.peer}`);
     });
 
-    connection.on('error', (error: unknown) => {
+    typedConnection.on('error', (error: unknown) => {
       snapshot = {
         ...snapshot,
         phase: 'error',
         error: error instanceof Error ? error.message : 'Peer connection error.',
-        lastEvent: `host:error:${connection.peer}`,
+        lastEvent: `host:error:${typedConnection.peer}`,
       };
-      emit();
+      listeners.forEach((listener) => listener(snapshot));
     });
   });
 
@@ -161,10 +468,10 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       error: error instanceof Error ? error.message : 'Peer host error.',
       lastEvent: 'host:error',
     };
-    emit();
+    listeners.forEach((listener) => listener(snapshot));
   });
 
-  const handle = {
+  return {
     get snapshot() {
       return snapshot;
     },
@@ -173,31 +480,37 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       listener(snapshot);
       return () => listeners.delete(listener);
     },
+    startGame() {
+      if (snapshot.phase === 'error') {
+        return;
+      }
+      const nextState = reducer(state, { type: 'START_GAME' });
+      if (nextState !== state) {
+        setState(nextState, 'host:start-game');
+      }
+    },
+    resetRoom() {
+      state = createHostGameState(roomId, makeGameId(roomId));
+      broadcastState('host:reset-room');
+    },
     broadcast(data: unknown) {
-      connections.forEach((connection) => {
+      connections.forEach(({ connection }) => {
         if (connection.open) {
           connection.send(data);
         }
       });
-      snapshot = {
-        ...snapshot,
-        lastEvent: `host:broadcast:${stringifyEvent(data)}`,
-      };
-      emit();
+      emit(snapshot.phase, `host:broadcast:${stringifyEvent(data)}`, null);
     },
     send(peerId: string, data: unknown) {
-      const connection = connections.get(peerId);
-      if (connection?.open) {
-        connection.send(data);
-        snapshot = {
-          ...snapshot,
-          lastEvent: `host:send:${peerId}:${stringifyEvent(data)}`,
-        };
-        emit();
+      const joined = connections.get(peerId);
+      if (joined?.connection.open) {
+        joined.connection.send(data);
+        emit(snapshot.phase, `host:send:${peerId}:${stringifyEvent(data)}`, null);
       }
     },
     destroy() {
-      connections.forEach((connection) => connection.close());
+      destroyed = true;
+      connections.forEach(({ connection }) => connection.close());
       connections.clear();
       peer?.destroy();
       snapshot = {
@@ -205,9 +518,7 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
         phase: 'closed',
         lastEvent: 'host:destroy',
       };
-      emit();
+      listeners.forEach((listener) => listener(snapshot));
     },
-  } satisfies PeerHostHandle;
-
-  return handle;
+  };
 }

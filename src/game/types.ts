@@ -1,4 +1,4 @@
-export const ROLES = ['MALIK_SAAB', 'BHAI', 'POLICE_WALA', 'MUMMA', 'ZARDAAR_CHOR'] as const;
+export const ROLES = ['MALIK_SAAB', 'BHAI', 'POLICE_WALA', 'ZARDAAR_CHOR', 'MUMMA'] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ACTION_TYPES = [
@@ -12,7 +12,19 @@ export const ACTION_TYPES = [
 ] as const;
 export type ActionType = (typeof ACTION_TYPES)[number];
 
-export const GAME_PHASES = ['LOBBY', 'TURN_START', 'CHALLENGE_WINDOW', 'AWAITING_BURN', 'AWAITING_JUGAAD_RETURN', 'GAME_OVER'] as const;
+export const GAME_PHASES = [
+  'LOBBY',
+  'DEALING',
+  'TURN_START',
+  'ACTION_DECLARED',
+  'CHALLENGE_WINDOW',
+  'BLOCK_WINDOW',
+  'AWAITING_BURN',
+  'AWAITING_JUGAAD_RETURN',
+  'RESOLVE_ACTION',
+  'TURN_END',
+  'GAME_OVER',
+] as const;
 export type GamePhase = (typeof GAME_PHASES)[number];
 
 export type PlayerId = string & { readonly __brand: 'PlayerId' };
@@ -32,7 +44,7 @@ export interface PlayerState {
   clientNonce: ClientNonce;
   rupees: number;
   hiddenConnections: ConnectionCard[];
-  revealedConnections: ConnectionCard[];
+  revealedConnections: Role[];
   connected: boolean;
   eliminated: boolean;
 }
@@ -43,20 +55,22 @@ export interface PendingAction {
   actionType: ActionType;
   targetId: PlayerId | null;
   claimedRole: Role | null;
-  claimRole: Role | null;
   cost: number;
   challengeable: boolean;
-  blockable: boolean;
+  blockRoles: Role[];
+  needsTarget: boolean;
 }
 
+export type ChallengeSource = 'action' | 'block';
 export type ChallengeResponse = 'challenged' | 'passed';
 
 export interface PendingChallenge {
+  source: ChallengeSource;
+  kind: ChallengeSource;
   actionId: string;
-  source: 'action' | 'block';
   claimantId: PlayerId;
+  claimedRole: Role;
   challengerId: PlayerId | null;
-  claimedRole: Role | null;
   eligibleChallengers: PlayerId[];
   responses: Partial<Record<PlayerId, ChallengeResponse>>;
 }
@@ -79,6 +93,7 @@ export interface PendingBurn {
 
 export interface PendingJugaad {
   playerId: PlayerId;
+  drawnConnections: ConnectionCard[];
   drawnCards: ConnectionCard[];
 }
 
@@ -91,6 +106,7 @@ export interface HostGameState {
   roomCode: RoomCode;
   roomId: string;
   gameId: GameId;
+  seq: number;
   phase: GamePhase;
   playersById: Record<PlayerId, PlayerState>;
   turnOrder: PlayerId[];
@@ -130,6 +146,7 @@ export interface PlayerPublicState {
 export interface PublicGameState {
   roomCode: RoomCode;
   gameId: GameId;
+  seq: number;
   phase: GamePhase;
   activePlayerId: PlayerId | null;
   players: PlayerPublicState[];
@@ -140,20 +157,24 @@ export interface PublicGameState {
   pendingChallenge: PendingChallenge | null;
   pendingBlock: PendingBlock | null;
   pendingBurn: PendingBurn | null;
+  winnerId: PlayerId | null;
 }
 
 export interface PrivatePlayerState {
   roomCode: RoomCode;
   gameId: GameId;
+  seq: number;
   phase: GamePhase;
   playerId: PlayerId;
   hiddenConnections: ConnectionCard[];
-  revealedConnections: Role[];
   rupees: number;
   connected: boolean;
   eliminated: boolean;
   isTurn: boolean;
   availableActions: ActionType[];
+  pendingAction: PendingAction | null;
+  pendingChallenge: PendingChallenge | null;
+  pendingBlock: PendingBlock | null;
   pendingBurn: PendingBurn | null;
   pendingJugaad: PendingJugaad | null;
 }
@@ -204,7 +225,7 @@ export interface ClientBurnMessage {
 
 export interface ClientJugaadReturnMessage {
   type: 'JUGAAD_RETURN';
-  connectionIds: [string, string];
+  returnedConnectionIds: [string, string];
 }
 
 export interface ClientResyncMessage {
@@ -254,8 +275,13 @@ export type GameEvent =
   | BlockEvent
   | { type: 'PASS_BLOCK'; playerId: PlayerId }
   | { type: 'CHOOSE_CONNECTION_TO_BURN'; playerId: PlayerId; connectionId: ConnectionCardId }
-  | { type: 'JUGAAD_RETURN'; playerId: PlayerId; connectionIds: [ConnectionCardId, ConnectionCardId] }
+  | { type: 'JUGAAD_RETURN'; playerId: PlayerId; returnedConnectionIds: [ConnectionCardId, ConnectionCardId] }
   | { type: 'REQUEST_RESYNC' };
+
+export interface ValidationIssue {
+  path: string;
+  message: string;
+}
 
 export interface ValidationResult {
   ok: true;
@@ -268,11 +294,6 @@ export interface ValidationError {
 }
 
 export type ValidationOutcome = ValidationResult | ValidationError;
-
-export interface ValidationIssue {
-  path: string;
-  message: string;
-}
 
 export interface ClientMessageResult {
   ok: boolean;

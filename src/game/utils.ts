@@ -20,8 +20,8 @@ export function toConnectionCardId(value: string): ConnectionCardId {
 }
 
 export function createConnectionCard(role: Role): ConnectionCard {
-  connectionCounter += 1;
-  return { id: toConnectionCardId(`connection-${connectionCounter}`), role };
+  const id = globalThis.crypto?.randomUUID?.() ?? `connection-${++connectionCounter}`;
+  return { id: toConnectionCardId(id), role };
 }
 
 export function createActionId(): string {

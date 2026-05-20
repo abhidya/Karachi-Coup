@@ -1,42 +1,29 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Field, Panel, Pill, Row, Stack } from './components/Ui';
+import { GAME_THEME, labels } from './game/theme';
+import type { ActionType, ClientMessage, HostLobbyPlayerView, PublicGameState } from './game/types';
 import { createPeerClient, type ClientNetworkSnapshot, type PeerClientHandle } from './network/peerClient';
 import { createPeerHost, type HostNetworkSnapshot, type PeerHostHandle } from './network/peerHost';
+import { readSessionStorage, sessionStorageKey, writeSessionStorage } from './network/storage';
 
-type RouteName = 'home' | 'host' | 'join' | 'lobby' | 'game' | 'burn' | 'return' | 'game-over';
-type Role = 'host' | 'player';
-type LobbyMember = { id: string; name: string; role: Role | 'spectator' };
+type RouteName = 'home' | 'host' | 'join' | 'lobby' | 'game';
+type ConnectionMode = 'idle' | 'host' | 'client';
 
-type SessionState = {
+type StoredSession = {
+  mode: ConnectionMode;
   roomId: string;
-  role: Role | null;
-  playerName: string;
-  members: LobbyMember[];
-  turn: string;
-  score: number;
-  log: string[];
+  displayName: string;
 };
 
-const DEFAULT_SESSION: SessionState = {
-  roomId: '',
-  role: null,
-  playerName: 'Player',
-  members: [],
-  turn: 'Waiting for players',
-  score: 0,
-  log: ['Ready to start a room.'],
-};
+const ALL_ROUTES: RouteName[] = ['home', 'host', 'join', 'lobby', 'game'];
+const TARGET_ACTIONS: readonly ActionType[] = ['KIRAYA_COLLECTION', 'POLICE_WALA_RAID', 'BHAI_KA_SCENE', 'FULL_BEIZZATI'];
+const BLOCK_ROLES = ['MALIK_SAAB', 'BHAI', 'POLICE_WALA', 'MUMMA', 'ZARDAAR_CHOR'] as const;
 
 function readHashRoute(): { route: RouteName; roomId: string } {
   const raw = window.location.hash.replace(/^#\/?/, '');
   const [path = '', query = ''] = raw.split('?');
   const params = new URLSearchParams(query);
-  const route = (['home', 'host', 'join', 'lobby', 'game', 'burn', 'return', 'game-over'] as const).includes(
-    path as RouteName,
-  )
-    ? (path as RouteName)
-    : 'home';
-
+  const route = (ALL_ROUTES as readonly string[]).includes(path) ? (path as RouteName) : 'home';
   return { route, roomId: params.get('room') ?? '' };
 }
 
@@ -52,8 +39,6 @@ function routeHash(route: RouteName, roomId?: string) {
 function generateRoomId() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const bytes = new Uint8Array(5);
-  // Compatibility fail-safe: use Web Crypto when available, but keep the shell usable in
-  // constrained browsers and test harnesses that do not expose a full crypto surface.
   const generator = globalThis.crypto?.getRandomValues?.bind(globalThis.crypto);
   if (generator) {
     generator(bytes);
@@ -68,6 +53,41 @@ function generateRoomId() {
 function formatRoomLink(roomId: string) {
   const base = `${window.location.origin}${window.location.pathname}`;
   return `${base}#/lobby?room=${roomId}`;
+}
+
+function normalizeRoomCode(value: string) {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+}
+
+function phaseTone(value: string | null | undefined) {
+  if (!value) return 'neutral';
+  if (value.includes('error')) return 'danger';
+  if (value.includes('synced') || value.includes('ready') || value.includes('connected') || value === 'joined') return 'success';
+  if (value.includes('challenge') || value.includes('burn') || value.includes('game')) return 'warn';
+  return 'neutral';
+}
+
+function statusTone(value: string | null | undefined) {
+  if (!value) return 'neutral';
+  if (value.includes('error')) return 'danger';
+  if (value.includes('connected') || value.includes('ready') || value.includes('synced')) return 'success';
+  return 'neutral';
+}
+
+function joinNames(members: HostLobbyPlayerView[]) {
+  return members.length ? members.map((member) => member.name).join(' · ') : 'No players yet';
+}
+
+function snapshotActivity(snapshot: HostNetworkSnapshot | ClientNetworkSnapshot | null) {
+  if (!snapshot) {
+    return 'idle';
+  }
+
+  if ('lastMessage' in snapshot) {
+    return snapshot.lastMessage ?? 'idle';
+  }
+
+  return snapshot.lastEvent ?? 'idle';
 }
 
 function useHashRoute() {
@@ -106,17 +126,35 @@ function usePeerHost(roomId: string | null, enabled: boolean, onSnapshot: (snaps
 
         handleRef.current = handle;
         unsubscribe = handle.subscribe(onSnapshot);
+        onSnapshot(handle.snapshot);
       })
       .catch((error: unknown) => {
-        // Fail-safe snapshot: surface the bootstrap error in UI state instead of throwing
-        // during render, so the shell can still load and show a recoverable error message.
         onSnapshot({
           phase: 'error',
           roomId,
           peerId: null,
           peers: [],
+          players: [],
+          publicState: {
+            roomCode: roomId as never,
+            gameId: roomId as never,
+            seq: 0,
+            phase: 'LOBBY',
+            activePlayerId: null,
+            players: [],
+            turnOrder: [],
+            log: [],
+            currentScene: 'Starting up',
+            pendingAction: null,
+            pendingChallenge: null,
+            pendingBlock: null,
+            pendingBurn: null,
+            winnerId: null,
+          },
+          privateStates: {},
           lastEvent: 'host:bootstrap:error',
           error: error instanceof Error ? error.message : 'Unable to start host session.',
+          restored: false,
         });
       });
 
@@ -131,7 +169,12 @@ function usePeerHost(roomId: string | null, enabled: boolean, onSnapshot: (snaps
   return handleRef;
 }
 
-function usePeerClient(roomId: string | null, enabled: boolean, onSnapshot: (snapshot: ClientNetworkSnapshot) => void) {
+function usePeerClient(
+  roomId: string | null,
+  enabled: boolean,
+  displayName: string,
+  onSnapshot: (snapshot: ClientNetworkSnapshot) => void,
+) {
   const handleRef = useRef<PeerClientHandle | null>(null);
 
   useEffect(() => {
@@ -142,7 +185,7 @@ function usePeerClient(roomId: string | null, enabled: boolean, onSnapshot: (sna
     let cancelled = false;
     let unsubscribe: (() => void) | undefined;
 
-    void createPeerClient(roomId)
+    void createPeerClient(roomId, { displayName })
       .then((handle) => {
         if (cancelled) {
           handle.destroy();
@@ -151,17 +194,22 @@ function usePeerClient(roomId: string | null, enabled: boolean, onSnapshot: (sna
 
         handleRef.current = handle;
         unsubscribe = handle.subscribe(onSnapshot);
+        onSnapshot(handle.snapshot);
       })
       .catch((error: unknown) => {
-        // Fail-safe snapshot: surface the bootstrap error in UI state instead of throwing
-        // during render, so the shell can still load and show a recoverable error message.
         onSnapshot({
           phase: 'error',
           roomId,
           peerId: null,
           connectedTo: null,
+          playerId: null,
+          displayName,
+          clientNonce: '',
+          publicState: null,
+          privateState: null,
           lastMessage: 'client:bootstrap:error',
           error: error instanceof Error ? error.message : 'Unable to start client session.',
+          restored: false,
         });
       });
 
@@ -171,199 +219,199 @@ function usePeerClient(roomId: string | null, enabled: boolean, onSnapshot: (sna
       handleRef.current?.destroy();
       handleRef.current = null;
     };
-  }, [enabled, onSnapshot, roomId]);
+  }, [displayName, enabled, onSnapshot, roomId]);
 
   return handleRef;
 }
 
-function statusTone(value: string | null | undefined) {
-  if (!value) return 'neutral';
-  if (value.includes('error')) return 'danger';
-  if (value.includes('connected') || value.includes('ready')) return 'success';
-  if (value.includes('burn') || value.includes('game-over')) return 'warn';
-  return 'neutral';
+function CopyButton({ value, label = 'Copy link' }: { value: string; label?: string }) {
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      window.prompt('Copy this link', value);
+    }
+  };
+
+  return (
+    <Button variant="secondary" onClick={copy} disabled={!value}>
+      {label}
+    </Button>
+  );
 }
 
-function phaseTone(phase: string | null | undefined) {
-  if (!phase) return 'neutral';
-  if (phase === 'error') return 'danger';
-  if (phase === 'ready' || phase === 'connected') return 'success';
-  if (phase === 'starting' || phase === 'connecting') return 'warn';
-  return 'neutral';
+function SnapshotPill({ value }: { value: string | null | undefined }) {
+  return <Pill tone={phaseTone(value)}>{value ?? 'idle'}</Pill>;
 }
 
-function joinNames(members: LobbyMember[]) {
-  return members.length ? members.map((member) => member.name).join(' · ') : 'No players yet';
+function actionLabel(actionType: ActionType) {
+  return labels.actionLabels[actionType];
+}
+
+function gamePhaseLabel(phase: PublicGameState['phase']) {
+  return labels.phaseLabels[phase];
+}
+
+function isTargetedAction(actionType: ActionType) {
+  return TARGET_ACTIONS.includes(actionType);
 }
 
 export function App() {
   const { route, roomId: routeRoomId, navigate } = useHashRoute();
+  const [mode, setMode] = useState<ConnectionMode>('idle');
+  const [displayName, setDisplayName] = useState('Player');
   const [roomId, setRoomId] = useState(routeRoomId);
   const [joinCode, setJoinCode] = useState(routeRoomId);
-  const [playerName, setPlayerName] = useState(DEFAULT_SESSION.playerName);
-  const [session, setSession] = useState<SessionState>(DEFAULT_SESSION);
   const [hostSnapshot, setHostSnapshot] = useState<HostNetworkSnapshot | null>(null);
   const [clientSnapshot, setClientSnapshot] = useState<ClientNetworkSnapshot | null>(null);
 
-  const isHostScreen = session.role === 'host' && !!session.roomId;
-  const isClientScreen = session.role === 'player' && !!session.roomId;
-
-  const hostHandleRef = usePeerHost(roomId || null, isHostScreen, setHostSnapshot);
-  const clientHandleRef = usePeerClient(roomId || null, isClientScreen, setClientSnapshot);
+  const hostHandleRef = usePeerHost(roomId || null, mode === 'host', setHostSnapshot);
+  const clientHandleRef = usePeerClient(roomId || null, mode === 'client', displayName, setClientSnapshot);
 
   useEffect(() => {
     if (routeRoomId) {
       setRoomId(routeRoomId);
       setJoinCode(routeRoomId);
-      setSession((current) => ({
-        ...current,
-        roomId: routeRoomId,
-      }));
     }
   }, [routeRoomId]);
 
   useEffect(() => {
-    if (hostSnapshot?.peerId) {
-      setRoomId(hostSnapshot.peerId);
+    if (route !== 'home') {
+      return;
     }
-  }, [hostSnapshot?.peerId]);
+
+    const stored = readSessionStorage<StoredSession>(sessionStorageKey());
+    if (!stored || stored.mode === 'idle') {
+      return;
+    }
+
+    setDisplayName(stored.displayName);
+    setRoomId(stored.roomId);
+    setJoinCode(stored.roomId);
+    setMode(stored.mode);
+    navigate('lobby', stored.roomId);
+  }, [navigate, route]);
+
+  const activeSnapshot = mode === 'host' ? hostSnapshot : clientSnapshot;
+  const publicState = activeSnapshot?.publicState ?? hostSnapshot?.publicState ?? clientSnapshot?.publicState ?? null;
+  const privateState = clientSnapshot?.privateState ?? null;
+  const hostPlayers: HostLobbyPlayerView[] = hostSnapshot?.players ?? publicState?.players?.map((player) => ({
+    playerId: player.id,
+    name: player.name,
+    connected: player.connected,
+    rupees: player.rupees,
+    hiddenConnectionCount: player.hiddenConnectionCount,
+    eliminated: player.eliminated,
+  })) ?? [];
+  const roomLink = roomId ? formatRoomLink(roomId) : '';
+  const isGamePhase = publicState?.phase && publicState.phase !== 'LOBBY';
+  const turnOwner = publicState?.players.find((player) => player.isTurn);
+  const opponentId = publicState?.players.find((player) => player.id !== privateState?.playerId && !player.eliminated)?.id ?? null;
 
   useEffect(() => {
-    if (hostSnapshot?.phase === 'ready') {
-      setSession((current) => ({
-        ...current,
-        members: current.members.some((member) => member.role === 'host') ? current.members : [
-          { id: hostSnapshot.peerId ?? current.roomId, name: 'You (Host)', role: 'host' },
-          ...current.members,
-        ],
-        log: [`Room ready: ${hostSnapshot.peerId ?? current.roomId}`, ...current.log].slice(0, 6),
-        turn: 'Lobby open',
-      }));
+    if (mode === 'host' && hostSnapshot?.peerId && (route === 'host' || route === 'home')) {
+      navigate('lobby', roomId);
     }
-  }, [hostSnapshot?.peerId, hostSnapshot?.phase]);
+  }, [hostSnapshot?.peerId, mode, navigate, roomId, route]);
 
   useEffect(() => {
-    if (clientSnapshot?.phase === 'connected') {
-      setSession((current) => ({
-        ...current,
-        log: [`Connected to room ${clientSnapshot.connectedTo ?? current.roomId}`, ...current.log].slice(0, 6),
-        turn: 'Connected',
-      }));
+    if (mode === 'client' && clientSnapshot?.connectedTo && (route === 'join' || route === 'home')) {
+      navigate('lobby', roomId);
     }
-  }, [clientSnapshot?.connectedTo, clientSnapshot?.phase]);
+  }, [clientSnapshot?.connectedTo, mode, navigate, roomId, route]);
 
-  const roomLink = useMemo(() => (session.roomId ? formatRoomLink(session.roomId) : ''), [session.roomId]);
+  useEffect(() => {
+    if (isGamePhase && route !== 'game') {
+      navigate('game', roomId);
+    }
+  }, [isGamePhase, navigate, route, roomId]);
 
   const createRoom = () => {
     const nextRoomId = generateRoomId();
     setRoomId(nextRoomId);
     setJoinCode(nextRoomId);
-    setSession({
+    setMode('host');
+    writeSessionStorage<StoredSession>(sessionStorageKey(), {
+      mode: 'host',
       roomId: nextRoomId,
-      role: 'host',
-      playerName,
-      members: [{ id: 'host', name: `${playerName} (Host)`, role: 'host' }],
-      turn: 'Lobby open',
-      score: 0,
-      log: [`Created room ${nextRoomId}`, 'Waiting for players.'],
+      displayName,
     });
     navigate('lobby', nextRoomId);
   };
 
   const joinRoom = () => {
-    const nextRoomId = joinCode.trim().toUpperCase();
-    if (!nextRoomId) return;
+    const nextRoomId = normalizeRoomCode(joinCode);
+    if (!nextRoomId) {
+      return;
+    }
+
     setRoomId(nextRoomId);
-    setSession({
+    setMode('client');
+    writeSessionStorage<StoredSession>(sessionStorageKey(), {
+      mode: 'client',
       roomId: nextRoomId,
-      role: 'player',
-      playerName,
-      members: [{ id: 'self', name: playerName, role: 'player' }],
-      turn: 'Joining room',
-      score: 0,
-      log: [`Joining room ${nextRoomId}`],
+      displayName,
     });
     navigate('lobby', nextRoomId);
   };
 
-  const go = (nextRoute: RouteName) => navigate(nextRoute, session.roomId || roomId || undefined);
-
-  const sendHostPing = () => {
-    hostHandleRef.current?.broadcast({
-      type: 'shell:ping',
-      roomId: session.roomId,
-      turn: session.turn,
-      timestamp: Date.now(),
+  const leaveRoom = () => {
+    hostHandleRef.current?.destroy();
+    clientHandleRef.current?.destroy();
+    setMode('idle');
+    setRoomId('');
+    setJoinCode('');
+    writeSessionStorage<StoredSession>(sessionStorageKey(), {
+      mode: 'idle',
+      roomId: '',
+      displayName,
     });
-    setSession((current) => ({
-      ...current,
-      log: [`Pinged room at ${new Date().toLocaleTimeString()}`, ...current.log].slice(0, 6),
-    }));
+    navigate('home');
   };
 
-  const sendClientReady = () => {
-    clientHandleRef.current?.send({
-      type: 'player:ready',
-      roomId: session.roomId,
-      playerName: session.playerName,
-      timestamp: Date.now(),
-    });
-    setSession((current) => ({
-      ...current,
-      log: [`Ready signal sent at ${new Date().toLocaleTimeString()}`, ...current.log].slice(0, 6),
-    }));
+  const startGame = () => hostHandleRef.current?.startGame();
+  const resetRoom = () => hostHandleRef.current?.resetRoom();
+  const requestResync = () => clientHandleRef.current?.requestResync();
+
+  const sendClientMessage = (message: ClientMessage) => {
+    clientHandleRef.current?.send(message);
   };
 
-  const addLobbyMember = (label: string, role: LobbyMember['role'] = 'spectator') => {
-    setSession((current) => ({
-      ...current,
-      members: [
-        ...current.members,
-        { id: `${role}-${current.members.length + 1}`, name: label, role },
-      ],
-      log: [`Added ${label}`, ...current.log].slice(0, 6),
-    }));
+  const declareAction = (actionType: ActionType) => {
+    const targetId = isTargetedAction(actionType) ? opponentId : null;
+    sendClientMessage({ type: 'DECLARE_ACTION', actionType, targetId });
   };
 
-  const removeLobbyMember = () => {
-    setSession((current) => ({
-      ...current,
-      members: current.members.length > 1 ? current.members.slice(0, -1) : current.members,
-      log: ['Removed last player', ...current.log].slice(0, 6),
-    }));
-  };
+  const challenge = () => sendClientMessage({ type: 'CHALLENGE' });
+  const passChallenge = () => sendClientMessage({ type: 'PASS_CHALLENGE' });
+  const passBlock = () => sendClientMessage({ type: 'PASS_BLOCK' });
+  const chooseBurn = (connectionId: string) =>
+    sendClientMessage({ type: 'CHOOSE_CONNECTION_TO_BURN', connectionId });
+  const chooseBlockRole = (role: (typeof BLOCK_ROLES)[number]) => sendClientMessage({ type: 'BLOCK', role });
 
-  const markOutcome = (message: string, nextRoute: RouteName = 'game-over') => {
-    setSession((current) => ({
-      ...current,
-      score: current.score + 1,
-      log: [message, ...current.log].slice(0, 6),
-    }));
-    go(nextRoute);
-  };
+  const publicSummary = publicState ? `${gamePhaseLabel(publicState.phase)} · ${publicState.currentScene}` : 'Waiting for room sync';
 
   return (
     <main className="app-shell">
       <div className="app-shell__backdrop" aria-hidden="true" />
       <div className="app-shell__inner">
         <header className="app-header">
-          <div>
-            <p className="eyebrow">Karachi Coup</p>
-            <h1>Mobile-first room shell for host, lobby, and play flows.</h1>
+          <div className="app-header__hero">
+            <p className="eyebrow">{GAME_THEME.title}</p>
+            <h1>Host, join, and play from real PeerJS rooms.</h1>
             <p className="lede">
-              Hash-based navigation keeps GitHub Pages happy while the PeerJS wrappers hold the network state shape
-              for future gameplay wiring.
+              JOIN identity, resync, and public/private snapshots are wired into the live room flow so host and
+              players see the same state after refreshes and reconnects.
             </p>
           </div>
           <div className="app-header__meta">
-            <Pill tone={phaseTone(hostSnapshot?.phase ?? clientSnapshot?.phase ?? 'idle')}>
-              {hostSnapshot?.phase ?? clientSnapshot?.phase ?? 'idle'}
-            </Pill>
-            <Pill tone={statusTone(session.turn)}>{session.turn}</Pill>
+            <SnapshotPill value={activeSnapshot?.phase ?? mode} />
+            <Pill tone={statusTone(publicState?.phase ?? null)}>{publicSummary}</Pill>
+            <Pill tone={statusTone(snapshotActivity(activeSnapshot))}>{snapshotActivity(activeSnapshot)}</Pill>
           </div>
         </header>
 
-        <section className="screen-switcher">
+        <nav className="screen-switcher">
           <Row gap="sm">
             <Button variant={route === 'home' ? 'primary' : 'secondary'} onClick={() => navigate('home')}>
               Home
@@ -374,76 +422,117 @@ export function App() {
             <Button variant={route === 'join' ? 'primary' : 'secondary'} onClick={() => navigate('join')}>
               Join room
             </Button>
-            <Button variant={route === 'lobby' ? 'primary' : 'secondary'} onClick={() => navigate('lobby', session.roomId || roomId || undefined)}>
+            <Button variant={route === 'lobby' ? 'primary' : 'secondary'} onClick={() => navigate('lobby', roomId || undefined)}>
               Lobby
             </Button>
+            <Button variant={route === 'game' ? 'primary' : 'secondary'} onClick={() => navigate('game', roomId || undefined)}>
+              Game
+            </Button>
           </Row>
-        </section>
+        </nav>
 
         {route === 'home' ? (
           <Stack gap="lg">
-            <Panel eyebrow="Start here" title="Choose a room path">
-              <Stack>
-                <p>
-                  Create a room as host or join with a room code. The shell keeps room state local and mirrors the
-                  PeerJS snapshots for easy integration work.
-                </p>
-                <Row>
-                  <Button onClick={() => navigate('host')}>Host a room</Button>
-                  <Button variant="secondary" onClick={() => navigate('join')}>
-                    Join a room
-                  </Button>
-                </Row>
-              </Stack>
-            </Panel>
+            <section className="hero-grid">
+              <Panel eyebrow="Start here" title="Choose a room path" footer={<Pill tone="neutral">PeerJS live</Pill>}>
+                <Stack gap="lg">
+                  <p>
+                    Create a room as host, join with a room code, then let the room snapshots drive the lobby and game
+                    screens.
+                  </p>
+                  <Row>
+                    <Button onClick={() => navigate('host')}>Host a room</Button>
+                    <Button variant="secondary" onClick={() => navigate('join')}>
+                      Join a room
+                    </Button>
+                    <Button variant="ghost" onClick={leaveRoom} disabled={mode === 'idle'}>
+                      Leave current room
+                    </Button>
+                  </Row>
+                </Stack>
+              </Panel>
 
-            <Panel eyebrow="Current state" title="Session summary">
-              <Stack gap="sm">
-                <p>
-                  Room: <strong>{session.roomId || '—'}</strong>
-                </p>
-                <p>
-                  Players: <strong>{joinNames(session.members)}</strong>
-                </p>
-                <p>
-                  Network: <strong>{hostSnapshot?.lastEvent ?? clientSnapshot?.lastMessage ?? 'idle'}</strong>
-                </p>
-              </Stack>
+              <Panel eyebrow="Session" title="Restore or start over">
+                <Stack gap="sm">
+                  <p>
+                    Mode: <strong>{mode}</strong>
+                  </p>
+                  <p>
+                    Room: <strong>{roomId || '—'}</strong>
+                  </p>
+                  <p>
+                    Name: <strong>{displayName}</strong>
+                  </p>
+                  <p>
+                    Network: <strong>{snapshotActivity(activeSnapshot)}</strong>
+                  </p>
+                </Stack>
+              </Panel>
+            </section>
+
+            <Panel eyebrow="Rules" title="What is wired">
+              <ul className="bullet-list">
+                <li>Host and player identities are persisted with room-specific storage.</li>
+                <li>JOIN messages assign stable room identities using client nonces.</li>
+                <li>Host broadcasts public state and per-player private state after every change.</li>
+                <li>Reconnects can request a resync without losing the room snapshot.</li>
+              </ul>
             </Panel>
           </Stack>
         ) : null}
 
         {route === 'host' ? (
           <Stack gap="lg">
-            <Panel eyebrow="Host room" title="Create a public room">
-              <Stack>
-                <Field
-                  label="Your name"
-                  value={playerName}
-                  onChange={setPlayerName}
-                  placeholder="Host name"
-                />
-                <Row>
-                  <Button onClick={createRoom}>Create room</Button>
-                  <Button variant="secondary" onClick={() => navigate('join')}>
-                    Join instead
-                  </Button>
-                </Row>
-              </Stack>
-            </Panel>
+            <section className="hero-grid">
+              <Panel eyebrow="Host room" title="Create a public room">
+                <Stack gap="lg">
+                  <Field
+                    label="Your name"
+                    value={displayName}
+                    onChange={setDisplayName}
+                    placeholder="Host name"
+                  />
+                  <Row>
+                    <Button onClick={createRoom}>Create room</Button>
+                    <Button variant="secondary" onClick={() => navigate('join')}>
+                      Join instead
+                    </Button>
+                  </Row>
+                </Stack>
+              </Panel>
+
+              <Panel eyebrow="Room link" title="Invite players">
+                <Stack gap="sm">
+                  <p>
+                    Room code: <strong>{roomId || 'Waiting for create room'}</strong>
+                  </p>
+                  <p className="mono">#{roomLink ? roomLink.split('#/').at(-1) : 'Create a room first'}</p>
+                  <Row>
+                    <CopyButton value={roomLink} />
+                    <Button variant="ghost" onClick={resetRoom} disabled={mode !== 'host'}>
+                      Reset room
+                    </Button>
+                  </Row>
+                </Stack>
+              </Panel>
+            </section>
+
             <Panel eyebrow="Networking" title="Host snapshot">
               <Stack gap="sm">
-                <p>Room id: {session.roomId || roomId || 'Waiting for create room'}</p>
                 <p>Peer id: {hostSnapshot?.peerId ?? 'Not opened yet'}</p>
                 <p>Peers: {hostSnapshot?.peers.length ? hostSnapshot.peers.join(', ') : 'None connected'}</p>
-                <p>Last event: {hostSnapshot?.lastEvent ?? 'Idle'}</p>
+                <p>Restored: {hostSnapshot?.restored ? 'Yes' : 'No'}</p>
+                <p>Last event: {snapshotActivity(activeSnapshot)}</p>
                 {hostSnapshot?.error ? <p className="error-text">{hostSnapshot.error}</p> : null}
                 <Row>
-                  <Button variant="secondary" onClick={sendHostPing} disabled={!session.roomId}>
-                    Broadcast ping
+                  <Button onClick={startGame} disabled={mode !== 'host' || !roomId}>
+                    Start game
                   </Button>
-                  <Button variant="ghost" onClick={() => addLobbyMember('Guest slot')}>
-                    Add guest
+                  <Button variant="secondary" onClick={resetRoom} disabled={mode !== 'host'}>
+                    Rebuild lobby
+                  </Button>
+                  <Button variant="ghost" onClick={leaveRoom}>
+                    Leave room
                   </Button>
                 </Row>
               </Stack>
@@ -453,164 +542,225 @@ export function App() {
 
         {route === 'join' ? (
           <Stack gap="lg">
-            <Panel eyebrow="Join room" title="Enter a room code">
-              <Stack>
-                <Field
-                  label="Room code"
-                  value={joinCode}
-                  onChange={(value) => setJoinCode(value.toUpperCase())}
-                  placeholder="AB12C"
-                  inputMode="text"
-                />
-                <Field
-                  label="Your name"
-                  value={playerName}
-                  onChange={setPlayerName}
-                  placeholder="Player name"
-                />
-                <Row>
-                  <Button onClick={joinRoom}>Join room</Button>
-                  <Button variant="secondary" onClick={() => navigate('host')}>
-                    Host instead
-                  </Button>
-                </Row>
-              </Stack>
-            </Panel>
-            <Panel eyebrow="Networking" title="Client snapshot">
-              <Stack gap="sm">
-                <p>Target room: {joinCode || 'Waiting for code'}</p>
-                <p>Peer id: {clientSnapshot?.peerId ?? 'Not opened yet'}</p>
-                <p>Connected to: {clientSnapshot?.connectedTo ?? 'Not connected'}</p>
-                <p>Last message: {clientSnapshot?.lastMessage ?? 'Idle'}</p>
-                {clientSnapshot?.error ? <p className="error-text">{clientSnapshot.error}</p> : null}
-                <Row>
-                  <Button variant="secondary" onClick={sendClientReady} disabled={!session.roomId}>
-                    Send ready
-                  </Button>
-                </Row>
-              </Stack>
-            </Panel>
+            <section className="hero-grid">
+              <Panel eyebrow="Join room" title="Enter a room code">
+                <Stack gap="lg">
+                  <Field
+                    label="Room code"
+                    value={joinCode}
+                    onChange={(value) => setJoinCode(normalizeRoomCode(value))}
+                    placeholder="AB12C"
+                    inputMode="text"
+                  />
+                  <Field
+                    label="Your name"
+                    value={displayName}
+                    onChange={setDisplayName}
+                    placeholder="Player name"
+                  />
+                  <Row>
+                    <Button onClick={joinRoom}>Join room</Button>
+                    <Button variant="secondary" onClick={() => navigate('host')}>
+                      Host instead
+                    </Button>
+                  </Row>
+                </Stack>
+              </Panel>
+
+              <Panel eyebrow="Connection" title="Client snapshot">
+                <Stack gap="sm">
+                  <p>Target room: {joinCode || 'Waiting for code'}</p>
+                  <p>Peer id: {clientSnapshot?.peerId ?? 'Not opened yet'}</p>
+                  <p>Connected to: {clientSnapshot?.connectedTo ?? 'Not connected'}</p>
+                  <p>Player id: {clientSnapshot?.playerId ?? 'Unassigned'}</p>
+                  <p>Last message: {snapshotActivity(activeSnapshot)}</p>
+                  {clientSnapshot?.error ? <p className="error-text">{clientSnapshot.error}</p> : null}
+                  <Row>
+                    <Button variant="secondary" onClick={requestResync} disabled={mode !== 'client'}>
+                      Request resync
+                    </Button>
+                    <Button variant="ghost" onClick={leaveRoom}>
+                      Leave room
+                    </Button>
+                  </Row>
+                </Stack>
+              </Panel>
+            </section>
           </Stack>
         ) : null}
 
-        {route === 'lobby' ? (
+        {route === 'lobby' || route === 'game' ? (
           <Stack gap="lg">
-            <Panel eyebrow="Lobby" title="Ready room">
-              <Stack gap="sm">
-                <Row>
-                  <Pill tone="success">{session.role === 'host' ? 'Host' : session.role === 'player' ? 'Player' : 'Preview'}</Pill>
-                  <Pill tone={phaseTone(hostSnapshot?.phase ?? clientSnapshot?.phase ?? 'idle')}>
-                    {hostSnapshot?.phase ?? clientSnapshot?.phase ?? 'idle'}
-                  </Pill>
-                </Row>
-                <p>
-                  Room link: <strong>{roomLink || 'Create or join a room first'}</strong>
-                </p>
-                <p>Roster: {joinNames(session.members)}</p>
-                <Row>
-                  <Button onClick={() => go('game')} disabled={!session.roomId}>
-                    Start game
-                  </Button>
-                  <Button variant="secondary" onClick={sendHostPing} disabled={session.role !== 'host'}>
-                    Sync lobby
-                  </Button>
-                  <Button variant="ghost" onClick={() => addLobbyMember('New recruit')}>
-                    Add player
-                  </Button>
-                  <Button variant="ghost" onClick={removeLobbyMember} disabled={session.members.length <= 1}>
-                    Remove player
-                  </Button>
-                </Row>
-              </Stack>
-            </Panel>
-            <Panel eyebrow="Log" title="Recent events">
-              <ul className="event-list">
-                {session.log.map((entry, index) => (
-                  <li key={`${entry}-${index}`}>{entry}</li>
-                ))}
-              </ul>
-            </Panel>
+            <section className="hero-grid">
+              <Panel eyebrow="Room" title="Live snapshot">
+                <Stack gap="sm">
+                  <Row>
+                    <Pill tone={phaseTone(publicState?.phase)}>{gamePhaseLabel(publicState?.phase ?? 'LOBBY')}</Pill>
+                    <Pill tone="neutral">Room {roomId || '—'}</Pill>
+                    <Pill tone="neutral">Turn {turnOwner?.name ?? 'Waiting'}</Pill>
+                  </Row>
+                  <p>
+                    Scene: <strong>{publicState?.currentScene ?? 'Waiting for sync'}</strong>
+                  </p>
+                  <p>
+                    Room link: <strong>{roomLink || 'Create or join a room first'}</strong>
+                  </p>
+                  <p>Roster: {joinNames(hostPlayers)}</p>
+                  <Row>
+                    {mode === 'host' ? (
+                      <>
+                        <Button onClick={startGame} disabled={!roomId}>
+                          Start game
+                        </Button>
+                        <Button variant="secondary" onClick={resetRoom}>
+                          Rebuild lobby
+                        </Button>
+                      </>
+                    ) : null}
+                    {mode === 'client' ? (
+                      <>
+                        <Button onClick={requestResync}>Request resync</Button>
+                        <Button variant="secondary" onClick={leaveRoom}>
+                          Leave room
+                        </Button>
+                      </>
+                    ) : null}
+                  </Row>
+                </Stack>
+              </Panel>
+
+              <Panel eyebrow="Players" title="Table roster">
+                <ul className="player-list">
+                  {publicState?.players.map((player) => (
+                    <li key={player.id} className={player.isTurn ? 'player-list__row player-list__row--active' : 'player-list__row'}>
+                      <div>
+                        <strong>{player.name}</strong>
+                        <small>{player.id}</small>
+                      </div>
+                      <div className="player-list__meta">
+                        <Pill tone={player.eliminated ? 'danger' : player.isTurn ? 'success' : 'neutral'}>
+                          {player.eliminated ? 'Out' : player.isTurn ? 'Turn' : 'Ready'}
+                        </Pill>
+                        <span>{player.rupees}₹</span>
+                        <span>{player.hiddenConnectionCount} cards</span>
+                      </div>
+                    </li>
+                  )) ?? <li>No players yet</li>}
+                </ul>
+              </Panel>
+            </section>
+
+            <section className="hero-grid">
+              <Panel eyebrow="Log" title="Recent events">
+                <ul className="event-list">
+                  {publicState?.log.map((entry) => (
+                    <li key={entry.id}>{entry.text}</li>
+                  )) ?? <li>Waiting for room sync.</li>}
+                </ul>
+              </Panel>
+
+              <Panel eyebrow="Private" title="Your snapshot">
+                {privateState ? (
+                  <Stack gap="sm">
+                    <Row>
+                      <Pill tone={statusTone(privateState.phase)}>{privateState.phase}</Pill>
+                      <Pill tone="neutral">{privateState.rupees}₹</Pill>
+                      <Pill tone="neutral">{privateState.hiddenConnections.length} hidden</Pill>
+                    </Row>
+                    <p>
+                      Player: <strong>{privateState.playerId}</strong>
+                    </p>
+                    <p>
+                      Elimination: <strong>{privateState.eliminated ? 'Eliminated' : 'Alive'}</strong>
+                    </p>
+                    <p>
+                      Actions:{' '}
+                      <strong>{privateState.availableActions.length ? privateState.availableActions.map(actionLabel).join(', ') : 'None'}</strong>
+                    </p>
+                    {privateState.pendingBurn ? (
+                      <Stack gap="sm">
+                        <p>Choose a connection to burn:</p>
+                        <Row>
+                          {privateState.hiddenConnections.map((card) => (
+                            <Button key={card.id} onClick={() => chooseBurn(card.id)} variant="danger">
+                              Burn {card.role}
+                            </Button>
+                          ))}
+                        </Row>
+                      </Stack>
+                    ) : null}
+                    {privateState.pendingJugaad ? (
+                      <p className="muted">Zardaar Jugaad return is pending for {privateState.pendingJugaad.playerId}.</p>
+                    ) : null}
+                  </Stack>
+                ) : (
+                  <p className="muted">Join a room to see your private snapshot.</p>
+                )}
+              </Panel>
+            </section>
+
+            <section className="hero-grid">
+              <Panel eyebrow="Actions" title="Game controls">
+                <Stack gap="sm">
+                  <Row>
+                    {privateState?.availableActions.map((actionType) => (
+                      <Button key={actionType} onClick={() => declareAction(actionType)} disabled={mode !== 'client'}>
+                        {actionLabel(actionType)}
+                      </Button>
+                    )) ?? null}
+                  </Row>
+                  <Row>
+                    <Button onClick={challenge} disabled={mode !== 'client'}>
+                      Challenge
+                    </Button>
+                    <Button variant="secondary" onClick={passChallenge} disabled={mode !== 'client'}>
+                      Pass challenge
+                    </Button>
+                    <Button variant="ghost" onClick={passBlock} disabled={mode !== 'client'}>
+                      Pass block
+                    </Button>
+                    <Button variant="ghost" onClick={requestResync}>
+                      Resync
+                    </Button>
+                  </Row>
+                  <Row>
+                    {BLOCK_ROLES.map((role) => (
+                      <Button key={role} variant="secondary" onClick={() => chooseBlockRole(role)} disabled={mode !== 'client'}>
+                        Block as {role}
+                      </Button>
+                    ))}
+                  </Row>
+                </Stack>
+              </Panel>
+
+              <Panel eyebrow="Host view" title="Public / private routing">
+                <Stack gap="sm">
+                  <p>
+                    Public snapshot: <strong>{publicState?.currentScene ?? 'Waiting'}</strong>
+                  </p>
+                  <p>
+                    Private snapshot: <strong>{privateState?.phase ?? 'Unassigned'}</strong>
+                  </p>
+                  <p>
+                    Routing: <strong>{mode === 'host' ? 'Host broadcast' : mode === 'client' ? 'Player inbox' : 'Idle'}</strong>
+                  </p>
+                  <p>
+                    Persistence: <strong>{hostSnapshot?.restored || clientSnapshot?.restored ? 'Restored' : 'Fresh'}</strong>
+                  </p>
+                </Stack>
+              </Panel>
+            </section>
           </Stack>
         ) : null}
 
-        {route === 'game' ? (
-          <Stack gap="lg">
-            <Panel eyebrow="Game" title="Table view">
-              <Stack gap="sm">
-                <Row>
-                  <Pill tone="success">Turn: {session.turn}</Pill>
-                  <Pill tone="neutral">Score: {session.score}</Pill>
-                </Row>
-                <p>This is the visual shell for the core game state. The actual game engine remains untouched.</p>
-                <Row>
-                  <Button onClick={() => go('burn')}>Go burn</Button>
-                  <Button variant="secondary" onClick={() => markOutcome('Round resolved to return screen.', 'return')}>
-                    Return card
-                  </Button>
-                </Row>
-              </Stack>
-            </Panel>
-            <Panel eyebrow="Board" title="Players">
-              <ul className="player-list">
-                {session.members.map((member) => (
-                  <li key={member.id}>
-                    <span>{member.name}</span>
-                    <small>{member.role}</small>
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          </Stack>
-        ) : null}
-
-        {route === 'burn' ? (
-          <Stack gap="lg">
-            <Panel eyebrow="Burn" title="Choose a card to burn">
-              <Stack gap="sm">
-                <p>Two quick actions for the burn flow keep the shell testable before the game core is wired in.</p>
-                <Row>
-                  <Button onClick={() => markOutcome('Burned a card and moved to return.', 'return')}>Burn card</Button>
-                  <Button variant="secondary" onClick={() => go('game')}>
-                    Back to table
-                  </Button>
-                </Row>
-              </Stack>
-            </Panel>
-          </Stack>
-        ) : null}
-
-        {route === 'return' ? (
-          <Stack gap="lg">
-            <Panel eyebrow="Jugaad return" title="Return from the side room">
-              <Stack gap="sm">
-                <p>The jugaad path is a lightweight return lane that keeps the shell navigation obvious.</p>
-                <Row>
-                  <Button onClick={() => markOutcome('Returned to the game-over screen.')}>Finish round</Button>
-                  <Button variant="secondary" onClick={() => go('game')}>
-                    Back to game
-                  </Button>
-                </Row>
-              </Stack>
-            </Panel>
-          </Stack>
-        ) : null}
-
-        {route === 'game-over' ? (
-          <Stack gap="lg">
-            <Panel eyebrow="Game over" title="Round complete">
-              <Stack gap="sm">
-                <p>Final score: {session.score}</p>
-                <p>Latest event: {session.log[0] ?? '—'}</p>
-                <Row>
-                  <Button onClick={() => navigate('lobby', session.roomId || roomId || undefined)}>Back to lobby</Button>
-                  <Button variant="secondary" onClick={() => navigate('home')}>
-                    Home
-                  </Button>
-                </Row>
-              </Stack>
-            </Panel>
-          </Stack>
-        ) : null}
+        {route === 'home' ? null : (
+          <footer className="screen-footer">
+            <Button variant="ghost" onClick={leaveRoom} disabled={mode === 'idle'}>
+              Leave room
+            </Button>
+            <Pill tone="neutral">{mode}</Pill>
+          </footer>
+        )}
       </div>
     </main>
   );

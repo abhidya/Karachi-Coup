@@ -1,74 +1,37 @@
-import type {
-  ActionEvent,
-  GameEvent,
-  HostGameState,
-  PendingAction,
-  PendingBurn,
-  PendingChallenge,
-  PlayerId,
-  PlayerState,
-} from './types';
+import type { ActionEvent, GameEvent, HostGameState, PendingAction, PendingChallenge, PlayerId, PlayerState, Role } from './types';
 import {
   actionCosts,
   actionRequirements,
   applyRupees,
-  blockRequirements,
+  blockRolesByAction,
+  createHostGameState,
+  createPendingAction,
   deckFor,
-  discardCards,
   drawCards,
-  eliminatePlayer,
   firstAlivePlayerId,
   isPlayerAlive,
   nextLivingPlayerId,
   removeConnectionFromPlayer,
   replacePlayer,
+  shuffleIntoDeck,
 } from './rules';
 import { createActionId, createBasePlayer, toPlayerId } from './utils';
-import { validateActionEvent } from './validation';
 
-function livingCount(state: HostGameState): number {
-  return state.turnOrder.filter((playerId) => isPlayerAlive(state.playersById[playerId])).length;
+function logEntry(text: string) {
+  return { id: createActionId(), text };
 }
 
-function nextTurnState(state: HostGameState): HostGameState {
-  if (livingCount(state) <= 1) {
-    return {
-      ...state,
-      phase: 'GAME_OVER',
-      activePlayerId: null,
-      winnerId: firstAlivePlayerId(state),
-      pendingAction: null,
-      pendingChallenge: null,
-      pendingBlock: null,
-      pendingBurn: null,
-      pendingJugaad: null,
-    };
-  }
+function bump(state: HostGameState, next: HostGameState, text: string): HostGameState {
+  return {
+    ...next,
+    seq: state.seq + 1,
+    log: [...state.log, logEntry(text)],
+  };
+}
 
-  if (!state.activePlayerId) {
-    return state;
-  }
-
-  const nextId = nextLivingPlayerId(state, state.activePlayerId);
-  if (!nextId) {
-    return {
-      ...state,
-      phase: 'GAME_OVER',
-      activePlayerId: null,
-      winnerId: firstAlivePlayerId(state),
-      pendingAction: null,
-      pendingChallenge: null,
-      pendingBlock: null,
-      pendingBurn: null,
-      pendingJugaad: null,
-    };
-  }
-
+function clearPrompts(state: HostGameState): HostGameState {
   return {
     ...state,
-    phase: 'TURN_START',
-    activePlayerId: nextId,
-    pendingAction: null,
     pendingChallenge: null,
     pendingBlock: null,
     pendingBurn: null,
@@ -76,401 +39,473 @@ function nextTurnState(state: HostGameState): HostGameState {
   };
 }
 
-function openChallengeWindow(
-  state: HostGameState,
-  source: 'action' | 'block',
-  claimantId: PlayerId,
-  claimedRole: PendingChallenge['claimedRole'],
-  actionId: string,
-): HostGameState {
+function livingCount(state: HostGameState): number {
+  return state.turnOrder.filter((playerId) => isPlayerAlive(state.playersById[playerId])).length;
+}
+
+function gameOverState(state: HostGameState, winnerId: PlayerId | null): HostGameState {
   return {
-    ...state,
-    phase: 'CHALLENGE_WINDOW',
-    pendingChallenge: {
-      actionId,
-      source,
-      claimantId,
-      challengerId: null,
-      claimedRole,
-      eligibleChallengers: [],
-      responses: {},
-    },
+    ...clearPrompts(state),
+    phase: 'GAME_OVER',
+    activePlayerId: null,
+    winnerId,
   };
 }
 
-function setBurn(state: HostGameState, playerId: PlayerId, reason: PendingBurn['reason'], continueTo: PendingBurn['continueTo'], actionId?: string): HostGameState {
+function advanceTurn(state: HostGameState): HostGameState {
+  const alive = livingCount(state);
+  if (alive <= 1) {
+    const winnerId = firstAlivePlayerId(state);
+    return bump(state, gameOverState(state, winnerId), `Winner: ${winnerId ? state.playersById[winnerId]?.name ?? 'Unknown' : 'None'}`);
+  }
+
+  const nextId = state.activePlayerId ? nextLivingPlayerId(state, state.activePlayerId) : firstAlivePlayerId(state);
+  if (!nextId) {
+    return bump(state, gameOverState(state, firstAlivePlayerId(state)), 'Game over');
+  }
+
+  return bump(
+    state,
+    {
+      ...clearPrompts(state),
+      phase: 'TURN_START',
+      activePlayerId: nextId,
+    },
+    `${state.playersById[nextId]?.name ?? 'Player'} turn`,
+  );
+}
+
+function eligibleChallengers(state: HostGameState, excluded: PlayerId[]): PlayerId[] {
+  return state.turnOrder.filter((playerId) => isPlayerAlive(state.playersById[playerId]) && !excluded.includes(playerId));
+}
+
+function replaceClaimedCardAndDraw(state: HostGameState, claimantId: PlayerId, claimedRole: Role): HostGameState {
+  const player = state.playersById[claimantId];
+  if (!player) return state;
+  const matchIndex = player.hiddenConnections.findIndex((card) => card.role === claimedRole);
+  if (matchIndex < 0) return state;
+
+  const provenCard = player.hiddenConnections[matchIndex]!;
+  const hiddenConnections = [...player.hiddenConnections.slice(0, matchIndex), ...player.hiddenConnections.slice(matchIndex + 1)];
+  const decked = shuffleIntoDeck({ ...state }, [provenCard]);
+  const replacement = decked.deck[0];
+  const updatedPlayer: PlayerState = {
+    ...player,
+    hiddenConnections: replacement ? [...hiddenConnections, replacement] : hiddenConnections,
+    revealedConnections: [...player.revealedConnections, claimedRole],
+  };
+
+  return replacePlayer(
+    {
+      ...decked,
+      deck: replacement ? decked.deck.slice(1) : decked.deck,
+    },
+    updatedPlayer,
+  );
+}
+
+function burnCard(state: HostGameState, playerId: PlayerId, connectionId: string): HostGameState {
+  return removeConnectionFromPlayer(state, playerId, connectionId as never);
+}
+
+function resolveAfterSuccessfulActionProof(state: HostGameState): HostGameState {
+  const pending = state.pendingAction;
+  if (!pending) return state;
+
+  switch (pending.actionType) {
+    case 'KIRAYA_COLLECTION':
+      return advanceTurn(applyRupees(state, pending.actorId, 3));
+    case 'POLICE_WALA_RAID':
+    case 'BHAI_KA_SCENE':
+      return {
+        ...state,
+        phase: 'BLOCK_WINDOW',
+      };
+    case 'ZARDAAR_JUGAAD': {
+      const drawn = drawCards(state, 2);
+      return {
+        ...drawn.state,
+        phase: 'AWAITING_JUGAAD_RETURN',
+        pendingJugaad: { playerId: pending.actorId, drawnConnections: drawn.cards, drawnCards: drawn.cards },
+      };
+    }
+    default:
+      return state;
+  }
+}
+
+function resolveAfterFailedBlockProof(state: HostGameState): HostGameState {
+  const pending = state.pendingAction;
+  if (!pending) return state;
+
+  switch (pending.actionType) {
+    case 'RISHTEDAAR_HELP':
+      return advanceTurn(applyRupees(state, pending.actorId, 2));
+    case 'POLICE_WALA_RAID': {
+      const targetId = pending.targetId;
+      const target = targetId ? state.playersById[targetId] : null;
+      const stolen = Math.min(2, target?.rupees ?? 0);
+      return advanceTurn(applyRupees(applyRupees(state, pending.actorId, stolen), targetId!, -stolen));
+    }
+    case 'BHAI_KA_SCENE':
+      return {
+        ...state,
+        phase: 'AWAITING_BURN',
+        pendingBurn: { playerId: pending.targetId!, reason: 'assassinate', continueTo: 'turn_end', actionId: pending.actionId },
+      };
+    default:
+      return state;
+  }
+}
+
+function resolveUnblockedAction(state: HostGameState): HostGameState {
+  const pending = state.pendingAction;
+  if (!pending) return state;
+
+  switch (pending.actionType) {
+    case 'CHAI_PAISA':
+      return advanceTurn(applyRupees(state, pending.actorId, 1));
+    case 'RISHTEDAAR_HELP':
+      return advanceTurn(applyRupees(state, pending.actorId, 2));
+    case 'KIRAYA_COLLECTION':
+      return advanceTurn(applyRupees(state, pending.actorId, 3));
+    case 'POLICE_WALA_RAID': {
+      const targetId = pending.targetId;
+      const target = targetId ? state.playersById[targetId] : null;
+      const stolen = Math.min(2, target?.rupees ?? 0);
+      return advanceTurn(applyRupees(applyRupees(state, pending.actorId, stolen), targetId!, -stolen));
+    }
+    case 'BHAI_KA_SCENE':
+      return {
+        ...state,
+        phase: 'AWAITING_BURN',
+        pendingBurn: { playerId: pending.targetId!, reason: 'assassinate', continueTo: 'turn_end', actionId: pending.actionId },
+      };
+    case 'ZARDAAR_JUGAAD': {
+      const drawn = drawCards(state, 2);
+      return {
+        ...drawn.state,
+        phase: 'AWAITING_JUGAAD_RETURN',
+        pendingJugaad: { playerId: pending.actorId, drawnConnections: drawn.cards, drawnCards: drawn.cards },
+      };
+    }
+    case 'FULL_BEIZZATI':
+      return {
+        ...state,
+        phase: 'AWAITING_BURN',
+        pendingBurn: { playerId: pending.targetId!, reason: 'coup', continueTo: 'turn_end', actionId: pending.actionId },
+      };
+    default:
+      return state;
+  }
+}
+
+function resolveAfterActionChallenge(state: HostGameState, challengerId: PlayerId): HostGameState {
+  const pending = state.pendingAction;
+  const challenge = state.pendingChallenge;
+  if (!pending || !challenge) return state;
+
+  const claimant = state.playersById[challenge.claimantId];
+  if (!claimant) return state;
+
+  const hasRole = Boolean(challenge.claimedRole && claimant.hiddenConnections.some((card) => card.role === challenge.claimedRole));
+  if (hasRole) {
+    const next = replaceClaimedCardAndDraw(state, challenge.claimantId, challenge.claimedRole);
+    return {
+      ...next,
+      phase: 'AWAITING_BURN',
+      pendingChallenge: { ...challenge, challengerId },
+      pendingBurn: { playerId: challengerId, reason: 'challenge-loss', continueTo: 'continue_action', actionId: pending.actionId },
+    };
+  }
+
   return {
     ...state,
     phase: 'AWAITING_BURN',
-    pendingBurn: { playerId, reason, continueTo, actionId },
+    pendingChallenge: { ...challenge, challengerId },
+    pendingBurn: { playerId: challenge.claimantId, reason: 'challenge-loss', continueTo: 'turn_end', actionId: pending.actionId },
   };
 }
 
-function claimResolved(state: HostGameState, challengerBurned: boolean): HostGameState {
+function resolveAfterBlockChallenge(state: HostGameState, challengerId: PlayerId): HostGameState {
+  const challenge = state.pendingChallenge;
   const pending = state.pendingAction;
-  if (!pending) {
-    return state;
+  if (!challenge || !pending) return state;
+
+  const blocker = state.playersById[challenge.claimantId];
+  if (!blocker) return state;
+
+  const hasRole = Boolean(challenge.claimedRole && blocker.hiddenConnections.some((card) => card.role === challenge.claimedRole));
+  if (hasRole) {
+    const next = replaceClaimedCardAndDraw(state, challenge.claimantId, challenge.claimedRole);
+    return {
+      ...next,
+      phase: 'AWAITING_BURN',
+      pendingChallenge: { ...challenge, challengerId },
+      pendingBurn: { playerId: challengerId, reason: 'challenge-loss', continueTo: 'turn_end', actionId: pending.actionId },
+    };
   }
 
-  if (!challengerBurned) {
-    return nextTurnState({ ...state, pendingChallenge: null, pendingBurn: null });
-  }
-
-  switch (pending.actionType) {
-    case 'KIRAYA_COLLECTION':
-      return nextTurnState(applyRupees({ ...state, pendingChallenge: null, pendingBurn: null }, pending.actorId, 3));
-    case 'ZARDAAR_JUGAAD': {
-      const drawn = drawCards(state, 2);
-      return {
-        ...drawn.state,
-        phase: 'AWAITING_JUGAAD_RETURN',
-        pendingAction: pending,
-        pendingChallenge: null,
-        pendingBurn: null,
-        pendingJugaad: { playerId: pending.actorId, drawnCards: drawn.cards },
-      };
-    }
-    case 'BHAI_KA_SCENE':
-    case 'POLICE_WALA_RAID':
-    case 'RISHTEDAAR_HELP':
-      return {
-        ...state,
-        phase: 'CHALLENGE_WINDOW',
-        pendingChallenge: null,
-        pendingBurn: null,
-        pendingAction: pending,
-        pendingBlock: pending.blockable ? state.pendingBlock : null,
-      };
-    default:
-      return nextTurnState({ ...state, pendingChallenge: null, pendingBurn: null });
-  }
+  return {
+    ...state,
+    phase: 'AWAITING_BURN',
+    pendingChallenge: { ...challenge, challengerId },
+    pendingBurn: { playerId: challenge.claimantId, reason: 'challenge-loss', continueTo: 'continue_block', actionId: pending.actionId },
+  };
 }
 
-function resolveBlockOutcome(state: HostGameState, passed: boolean): HostGameState {
-  const pending = state.pendingAction;
-  if (!pending) {
-    return state;
-  }
-  if (!passed) {
-    return claimResolved(state, false);
-  }
-
-  switch (pending.actionType) {
-    case 'RISHTEDAAR_HELP':
-      return nextTurnState(state);
-    case 'KIRAYA_COLLECTION':
-      return nextTurnState(applyRupees(state, pending.actorId, 3));
-    case 'POLICE_WALA_RAID': {
-      const targetId = pending.targetId;
-      if (!targetId) {
-        return nextTurnState(state);
-      }
-      const target = state.playersById[targetId];
-      const stolen = Math.min(2, target?.rupees ?? 0);
-      return nextTurnState(applyRupees(applyRupees(state, pending.actorId, stolen), targetId, -stolen));
-    }
-    case 'BHAI_KA_SCENE':
-      return setBurn(state, pending.targetId!, 'assassinate', 'continue_action', pending.actionId);
-    case 'ZARDAAR_JUGAAD': {
-      const drawn = drawCards(state, 2);
-      return {
-        ...drawn.state,
-        phase: 'AWAITING_JUGAAD_RETURN',
-        pendingAction: pending,
-        pendingChallenge: null,
-        pendingBurn: null,
-        pendingJugaad: { playerId: pending.actorId, drawnCards: drawn.cards },
-      };
-    }
-    case 'FULL_BEIZZATI':
-      return setBurn(state, pending.targetId!, 'coup', 'turn_end', pending.actionId);
-    case 'CHAI_PAISA':
-      return nextTurnState(state);
-    default:
-      return state;
-  }
+function resolveBlockStand(state: HostGameState): HostGameState {
+  return advanceTurn({ ...state, pendingAction: null, pendingBlock: null, pendingChallenge: null });
 }
 
-function finishBurn(state: HostGameState, playerId: PlayerId, connectionId: string): HostGameState {
+function resolveJugaadReturn(state: HostGameState, playerId: PlayerId, returnedConnectionIds: [string, string]): HostGameState {
+  const pending = state.pendingJugaad;
   const player = state.playersById[playerId];
-  if (!player) {
-    return state;
-  }
+  if (!pending || !player || pending.playerId !== playerId) return state;
 
-  let nextState = removeConnectionFromPlayer(state, playerId, connectionId as never);
-  if (!isPlayerAlive(nextState.playersById[playerId])) {
-    nextState = eliminatePlayer(nextState, playerId);
-  }
+  const combined = [...player.hiddenConnections, ...pending.drawnConnections];
+  const selected = new Set(returnedConnectionIds);
+  if (selected.size !== 2) return state;
+  if (![...selected].every((id) => combined.some((card) => card.id === id))) return state;
 
-  const pendingChallenge = state.pendingChallenge;
-  const pendingAction = state.pendingAction;
-  if (!pendingAction) {
-    return nextTurnState({ ...nextState, pendingBurn: null, pendingChallenge: null });
-  }
+  const returned = combined.filter((card) => selected.has(card.id));
+  const kept = combined.filter((card) => !selected.has(card.id));
+  const nextPlayer: PlayerState = { ...player, hiddenConnections: kept };
 
-  if (pendingChallenge?.source === 'action') {
-    const challengerLost = playerId === pendingChallenge.challengerId;
-    const accusedLost = playerId === pendingChallenge.claimantId;
-    if (accusedLost) {
-      return nextTurnState({ ...nextState, pendingBurn: null, pendingChallenge: null });
-    }
-    if (challengerLost) {
-      return claimResolved({ ...nextState, pendingBurn: null, pendingChallenge: null }, true);
-    }
-  }
-
-  if (pendingChallenge?.source === 'block') {
-    const blockerLost = playerId === pendingChallenge.claimantId;
-    const challengerLost = playerId === pendingChallenge.challengerId;
-    if (blockerLost) {
-      return resolveBlockOutcome({ ...nextState, pendingBurn: null, pendingChallenge: null }, true);
-    }
-    if (challengerLost) {
-      return nextTurnState({ ...nextState, pendingBurn: null, pendingChallenge: null });
-    }
-  }
-
-  return nextTurnState({ ...nextState, pendingBurn: null, pendingChallenge: null });
+  const decked = shuffleIntoDeck({ ...state, pendingJugaad: null }, returned);
+  return advanceTurn(replacePlayer(decked, nextPlayer));
 }
 
-function applyDeclaredAction(state: HostGameState, action: ActionEvent): HostGameState {
-  const actor = state.playersById[action.action.actorId];
-  if (!actor || !isPlayerAlive(actor) || state.activePlayerId !== action.action.actorId) {
-    return state;
-  }
+function declareAction(state: HostGameState, action: PendingAction): HostGameState {
+  const actor = state.playersById[action.actorId];
+  if (!actor || !isPlayerAlive(actor) || state.activePlayerId !== action.actorId || state.phase !== 'TURN_START') return state;
+  if (actor.rupees >= 10 && action.actionType !== 'FULL_BEIZZATI') return state;
 
-  switch (action.action.actionType) {
+  switch (action.actionType) {
     case 'CHAI_PAISA':
-      return nextTurnState(applyRupees(state, action.action.actorId, 1));
+      return bump(state, advanceTurn(applyRupees(state, action.actorId, 1)), 'Chai Paisa');
     case 'RISHTEDAAR_HELP':
-      return openChallengeWindow(
+      return bump(
+        state,
         {
-          ...applyRupees(state, action.action.actorId, 2),
-          pendingAction: action.action,
+          ...state,
+          phase: 'BLOCK_WINDOW',
+          pendingAction: action,
         },
-        'action',
-        action.action.actorId,
-        action.action.claimedRole,
-        action.action.actionId,
+        'Rishtedaar Help',
       );
     case 'KIRAYA_COLLECTION':
-      return openChallengeWindow({ ...state, pendingAction: action.action }, 'action', action.action.actorId, 'MALIK_SAAB', action.action.actionId);
-    case 'BHAI_KA_SCENE':
-      return openChallengeWindow(
-        {
-          ...applyRupees(state, action.action.actorId, -actionCosts.BHAI_KA_SCENE),
-          pendingAction: action.action,
-        },
-        'action',
-        action.action.actorId,
-        'BHAI',
-        action.action.actionId,
-      );
     case 'POLICE_WALA_RAID':
-      return openChallengeWindow({ ...state, pendingAction: action.action }, 'action', action.action.actorId, 'POLICE_WALA', action.action.actionId);
+    case 'BHAI_KA_SCENE':
     case 'ZARDAAR_JUGAAD':
-      return openChallengeWindow({ ...state, pendingAction: action.action }, 'action', action.action.actorId, 'ZARDAAR_CHOR', action.action.actionId);
-    case 'FULL_BEIZZATI':
-      return setBurn(
+      return bump(
+        state,
         {
-          ...applyRupees(state, action.action.actorId, -actionCosts.FULL_BEIZZATI),
-          pendingAction: action.action,
+          ...applyRupees(state, action.actorId, action.actionType === 'BHAI_KA_SCENE' ? -actionCosts.BHAI_KA_SCENE : 0),
+          phase: 'CHALLENGE_WINDOW',
+          pendingAction: action,
+          pendingChallenge: {
+            source: 'action',
+            kind: 'action',
+            actionId: action.actionId,
+            claimantId: action.actorId,
+            claimedRole: action.claimedRole ?? actionRequirements[action.actionType]!,
+            challengerId: null,
+            eligibleChallengers: eligibleChallengers(state, [action.actorId]),
+            responses: {},
+          },
         },
-        action.action.targetId!,
-        'full-beizzati',
-        'turn_end',
-        action.action.actionId,
+        action.actionType,
+      );
+    case 'FULL_BEIZZATI':
+      return bump(
+        state,
+        {
+          ...applyRupees(state, action.actorId, -actionCosts.FULL_BEIZZATI),
+          phase: 'AWAITING_BURN',
+          pendingAction: action,
+          pendingBurn: { playerId: action.targetId!, reason: 'full-beizzati', continueTo: 'turn_end', actionId: action.actionId },
+        },
+        'Full Beizzati',
       );
     default:
       return state;
   }
+}
+
+function passChallenge(state: HostGameState, playerId: PlayerId): HostGameState {
+  const challenge = state.pendingChallenge;
+  const pending = state.pendingAction;
+  if (!challenge || !pending || !challenge.eligibleChallengers.includes(playerId)) return state;
+
+  const responses: PendingChallenge['responses'] = { ...challenge.responses, [playerId]: 'passed' };
+  const allPassed = challenge.eligibleChallengers.every((id) => responses[id] === 'passed');
+  const nextChallenge = { ...challenge, responses };
+
+  if (!allPassed) {
+    return bump(state, { ...state, pendingChallenge: nextChallenge }, 'Let It Slide');
+  }
+
+  if (challenge.kind === 'action') {
+    if (pending.actionType === 'KIRAYA_COLLECTION') {
+      return advanceTurn(bump(state, { ...applyRupees(state, pending.actorId, 3), pendingChallenge: null }, 'Kiraya Collection'));
+    }
+    if (pending.actionType === 'ZARDAAR_JUGAAD') {
+      const drawn = drawCards(state, 2);
+      return bump(
+        state,
+        {
+          ...drawn.state,
+          phase: 'AWAITING_JUGAAD_RETURN',
+          pendingChallenge: null,
+          pendingAction: pending,
+          pendingJugaad: { playerId: pending.actorId, drawnConnections: drawn.cards, drawnCards: drawn.cards },
+        },
+        'Zardaar Jugaad',
+      );
+    }
+    return bump(state, { ...state, phase: 'BLOCK_WINDOW', pendingChallenge: null }, 'Let It Slide');
+  }
+
+  return resolveBlockStand(bump(state, { ...state, pendingChallenge: null }, 'Let It Slide'));
+}
+
+function passBlock(state: HostGameState, _playerId: PlayerId): HostGameState {
+  if (state.phase !== 'BLOCK_WINDOW') return state;
+  const pending = state.pendingAction;
+  if (!pending) return state;
+  return resolveUnblockedAction(bump(state, { ...state, pendingChallenge: null, pendingBlock: null }, 'Let It Slide'));
+}
+
+function blockAction(state: HostGameState, block: { actionId: string; blockerId: PlayerId; blockingRole: Role; targetId: PlayerId | null }): HostGameState {
+  const pending = state.pendingAction;
+  if (!pending || state.phase !== 'BLOCK_WINDOW') return state;
+  const roles = blockRolesByAction[pending.actionType] ?? [];
+  if (!roles.includes(block.blockingRole)) return state;
+
+  const challengers = eligibleChallengers(state, [pending.actorId, block.blockerId]);
+  return bump(
+    state,
+    {
+      ...state,
+      phase: 'CHALLENGE_WINDOW',
+      pendingBlock: {
+        actionId: block.actionId,
+        blockerId: block.blockerId,
+        blockingRole: block.blockingRole,
+        targetId: block.targetId,
+        eligibleChallengers: challengers,
+        responses: {},
+      },
+      pendingChallenge: {
+        source: 'block',
+        kind: 'block',
+        actionId: block.actionId,
+        claimantId: block.blockerId,
+        claimedRole: block.blockingRole,
+        challengerId: null,
+        eligibleChallengers: challengers,
+        responses: {},
+      },
+    },
+    'Use Setting',
+  );
+}
+
+function chooseBurn(state: HostGameState, playerId: PlayerId, connectionId: string): HostGameState {
+  const pendingBurn = state.pendingBurn;
+  if (!pendingBurn || pendingBurn.playerId !== playerId) return state;
+  const player = state.playersById[playerId];
+  if (!player || !player.hiddenConnections.some((card) => card.id === (connectionId as never))) return state;
+  const burnedCard = player.hiddenConnections.find((card) => card.id === (connectionId as never));
+  if (!burnedCard) return state;
+  const burned = burnCard(state, playerId, connectionId);
+  const cleared: HostGameState = { ...burned, pendingBurn: null, pendingChallenge: null };
+
+  if (pendingBurn.continueTo === 'continue_action') {
+    return bump(state, resolveAfterSuccessfulActionProof(cleared), 'Burn Connection');
+  }
+  if (pendingBurn.continueTo === 'continue_block') {
+    return bump(state, resolveAfterFailedBlockProof(cleared), 'Burn Connection');
+  }
+  if (pendingBurn.continueTo === 'turn_end') {
+    return advanceTurn(bump(state, { ...cleared, pendingAction: null, pendingBlock: null }, 'Burn Connection'));
+  }
+  return bump(state, gameOverState(cleared, firstAlivePlayerId(cleared)), 'Burn Connection');
+}
+
+function requestResync(state: HostGameState): HostGameState {
+  return state;
 }
 
 export function createActionEvent(actorId: PlayerId, actionType: PendingAction['actionType'], targetId: PlayerId | null = null): ActionEvent {
-  const claimedRole = actionRequirements[actionType];
   return {
     type: 'DECLARE_ACTION',
-    action: {
-      actionId: createActionId(),
-      actorId,
-      actionType,
-      targetId,
-      claimedRole,
-      claimRole: claimedRole,
-      cost: actionCosts[actionType],
-      challengeable: claimedRole !== null || actionType === 'RISHTEDAAR_HELP' || actionType === 'FULL_BEIZZATI',
-      blockable: actionType in blockRequirements,
-    },
+    action: createPendingAction(createActionId(), actorId, actionType, targetId),
   };
 }
 
 export function reducer(state: HostGameState, event: GameEvent): HostGameState {
-  if (event.type === 'START_GAME') {
-    const shuffledDeck = deckFor(state.roomCode, state.gameId);
-    const playersEntries = Object.entries(state.playersById);
-    let deckIndex = 0;
-
-    const playersById = Object.fromEntries(
-      playersEntries.map(([playerId, player]) => {
-        const drawn = shuffledDeck.slice(deckIndex, deckIndex + 2);
-        deckIndex += 2;
-        const nextPlayer: PlayerState = {
+  switch (event.type) {
+    case 'START_GAME':
+      if (state.phase !== 'LOBBY') return state;
+      if (state.turnOrder.length < 2 || state.turnOrder.length > 6) return state;
+      const shuffled = deckFor(state.roomCode, state.gameId);
+      let index = 0;
+      const playersById: HostGameState['playersById'] = {};
+      for (const playerId of state.turnOrder) {
+        const player = state.playersById[playerId];
+        if (!player) continue;
+        const hiddenConnections = shuffled.slice(index, index + 2);
+        index += 2;
+        playersById[playerId] = {
           ...createBasePlayer(toPlayerId(playerId), player.name),
           clientNonce: player.clientNonce,
           rupees: 2,
-          hiddenConnections: drawn,
+          hiddenConnections,
           revealedConnections: [],
           connected: player.connected,
-          eliminated: drawn.length === 0,
+          eliminated: hiddenConnections.length === 0,
         };
-        return [playerId, nextPlayer];
-      }),
-    ) as HostGameState['playersById'];
-
-    return {
-      ...state,
-      phase: 'TURN_START',
-      playersById,
-      deck: shuffledDeck.slice(deckIndex),
-      discardPile: [],
-      activePlayerId: state.turnOrder[0] ?? null,
-      pendingAction: null,
-      pendingChallenge: null,
-      pendingBlock: null,
-      pendingBurn: null,
-      pendingJugaad: null,
-      winnerId: null,
-    };
-  }
-
-  if (event.type === 'DECLARE_ACTION') {
-    if (validateActionEvent(state, event).length > 0) {
+      }
+      return bump(state, {
+        ...state,
+        phase: 'TURN_START',
+        playersById,
+        deck: shuffled.slice(index),
+        discardPile: [],
+        activePlayerId: state.turnOrder[0] ?? null,
+        pendingAction: null,
+        pendingChallenge: null,
+        pendingBlock: null,
+        pendingBurn: null,
+        pendingJugaad: null,
+        winnerId: null,
+      }, 'Game started');
+    case 'RESET_GAME':
+      return createHostGameState(state.roomId, state.gameId);
+    case 'DECLARE_ACTION':
+      return declareAction(state, event.action);
+    case 'CHALLENGE':
+      if (state.pendingChallenge?.kind === 'block') {
+        return resolveAfterBlockChallenge(state, event.challengerId);
+      }
+      if (state.pendingChallenge?.kind === 'action') {
+        return resolveAfterActionChallenge(state, event.challengerId);
+      }
       return state;
-    }
-    return applyDeclaredAction(state, event);
-  }
-
-  if (state.phase === 'GAME_OVER') {
-    return state;
-  }
-
-  switch (event.type) {
-    case 'CHALLENGE': {
-      if (state.phase !== 'CHALLENGE_WINDOW' || !state.pendingAction) {
-        return state;
-      }
-      const challengerId = event.challengerId;
-      const claimedRole = state.pendingChallenge?.claimedRole ?? state.pendingAction.claimedRole;
-      const accusedId = state.pendingChallenge?.source === 'block' ? state.pendingBlock?.blockerId ?? null : state.pendingAction.actorId;
-      if (!accusedId || !claimedRole) {
-        return state;
-      }
-      const accused = state.playersById[accusedId];
-      const success = Boolean(accused?.hiddenConnections.some((card) => card.role === claimedRole));
-      return {
-        ...state,
-        pendingChallenge: {
-          actionId: state.pendingAction.actionId,
-          source: state.pendingChallenge?.source ?? 'action',
-          claimantId: accusedId,
-          challengerId,
-          claimedRole,
-          eligibleChallengers: state.turnOrder.filter((id) => id !== accusedId),
-          responses: {},
-        },
-        pendingBurn: {
-          playerId: success ? challengerId : accusedId,
-          reason: 'challenge-loss',
-          continueTo: 'continue_action',
-          actionId: state.pendingAction.actionId,
-        },
-        phase: 'AWAITING_BURN',
-      };
-    }
-    case 'PASS_CHALLENGE': {
-      if (state.phase !== 'CHALLENGE_WINDOW' || !state.pendingAction) {
-        return state;
-      }
-      switch (state.pendingAction.actionType) {
-        case 'KIRAYA_COLLECTION':
-          return nextTurnState(applyRupees(state, state.pendingAction.actorId, 3));
-        case 'ZARDAAR_JUGAAD': {
-          const drawn = drawCards(state, 2);
-          return {
-            ...drawn.state,
-            phase: 'AWAITING_JUGAAD_RETURN',
-            pendingAction: state.pendingAction,
-            pendingChallenge: null,
-            pendingBurn: null,
-            pendingJugaad: { playerId: state.pendingAction.actorId, drawnCards: drawn.cards },
-          };
-        }
-        case 'RISHTEDAAR_HELP':
-        case 'BHAI_KA_SCENE':
-        case 'POLICE_WALA_RAID':
-        default:
-          return state;
-      }
-    }
-    case 'BLOCK': {
-      const block = event.block;
-      if (state.phase !== 'CHALLENGE_WINDOW' || !state.pendingAction) {
-        return state;
-      }
-      const required = blockRequirements[state.pendingAction.actionType];
-      if (required && required !== block.blockingRole) {
-        return state;
-      }
-      return {
-        ...state,
-        pendingBlock: block,
-        pendingChallenge: {
-          actionId: block.actionId,
-          source: 'block',
-          claimantId: block.blockerId,
-          challengerId: null,
-          claimedRole: block.blockingRole,
-          eligibleChallengers: block.eligibleChallengers,
-          responses: block.responses,
-        },
-        phase: 'CHALLENGE_WINDOW',
-      };
-    }
-    case 'PASS_BLOCK': {
-      if (state.phase !== 'CHALLENGE_WINDOW' || !state.pendingAction) {
-        return state;
-      }
-      return resolveBlockOutcome(state, true);
-    }
-    case 'CHOOSE_CONNECTION_TO_BURN': {
-      if (state.phase !== 'AWAITING_BURN' || !state.pendingBurn) {
-        return state;
-      }
-      return finishBurn(state, event.playerId, event.connectionId);
-    }
-    case 'JUGAAD_RETURN': {
-      if (state.phase !== 'AWAITING_JUGAAD_RETURN' || !state.pendingJugaad) {
-        return state;
-      }
-      const actor = state.playersById[event.playerId];
-      if (!actor) {
-        return state;
-      }
-      const keepIds = new Set(event.connectionIds);
-      const combined = [...actor.hiddenConnections, ...state.pendingJugaad.drawnCards];
-      const kept = combined.filter((card) => keepIds.has(card.id));
-      if (kept.length !== 2) {
-        return state;
-      }
-      const returned = combined.filter((card) => !keepIds.has(card.id));
-      const updatedActor: PlayerState = {
-        ...actor,
-        hiddenConnections: kept,
-        revealedConnections: actor.revealedConnections,
-      };
-      const nextState = discardCards(replacePlayer({ ...state, pendingJugaad: null }, updatedActor), returned);
-      return nextTurnState({ ...nextState, phase: 'TURN_START' });
-    }
+    case 'PASS_CHALLENGE':
+      return passChallenge(state, event.playerId);
+    case 'BLOCK':
+      return blockAction(state, event.block);
+    case 'PASS_BLOCK':
+      return passBlock(state, event.playerId);
+    case 'CHOOSE_CONNECTION_TO_BURN':
+      return chooseBurn(state, event.playerId, event.connectionId);
+    case 'JUGAAD_RETURN':
+      return resolveJugaadReturn(state, event.playerId, event.returnedConnectionIds);
+    case 'REQUEST_RESYNC':
+      return requestResync(state);
     default:
       return state;
   }

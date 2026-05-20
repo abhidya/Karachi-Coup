@@ -1,3 +1,19 @@
+import type {
+  ClientJoinMessage,
+  ClientMessage,
+  ClientResyncMessage,
+  PrivatePlayerState,
+  PublicGameState,
+  ServerErrorMessage,
+  ServerMessage,
+  ServerPrivateStateMessage,
+  ServerPublicStateMessage,
+  ServerWelcomeMessage,
+  RoomCode,
+  PlayerId,
+} from '../game/types';
+import { clientStorageKey, readLocalStorage, writeLocalStorage, writeSessionStorage, sessionStorageKey } from './storage';
+
 type PeerModule = {
   default: new (id?: string, options?: Record<string, unknown>) => ClientPeerInstance;
 };
@@ -17,57 +33,233 @@ type ClientConnection = {
   close: () => void;
 };
 
-export type ClientNetworkPhase = 'idle' | 'connecting' | 'connected' | 'error' | 'closed';
+type StoredClientIdentity = {
+  roomId: string;
+  displayName: string;
+  clientNonce: string;
+  playerId: string | null;
+};
+
+export type ClientNetworkPhase = 'idle' | 'connecting' | 'joined' | 'synced' | 'error' | 'closed';
 
 export type ClientNetworkSnapshot = {
   phase: ClientNetworkPhase;
   roomId: string;
   peerId: string | null;
   connectedTo: string | null;
+  playerId: PlayerId | null;
+  displayName: string;
+  clientNonce: string;
+  publicState: PublicGameState | null;
+  privateState: PrivatePlayerState | null;
   lastMessage: string | null;
+  lastEvent?: string | null;
   error: string | null;
+  restored: boolean;
 };
 
 export type PeerClientHandle = {
   readonly snapshot: ClientNetworkSnapshot;
   subscribe(listener: (snapshot: ClientNetworkSnapshot) => void): () => void;
-  send(data: unknown): void;
+  send(data: ClientMessage): void;
+  requestResync(): void;
   destroy(): void;
 };
 
-function initialSnapshot(roomId: string): ClientNetworkSnapshot {
+type ClientOptions = {
+  displayName?: string;
+};
+
+function makeClientNonce(roomId: string): string {
+  const existing = readLocalStorage<StoredClientIdentity>(clientStorageKey(roomId));
+  if (existing?.clientNonce) {
+    return existing.clientNonce;
+  }
+
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `nonce-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
+function loadIdentity(roomId: string, displayName: string): StoredClientIdentity {
+  const stored = readLocalStorage<StoredClientIdentity>(clientStorageKey(roomId));
+  if (stored) {
+    return {
+      roomId,
+      displayName: stored.displayName || displayName,
+      clientNonce: stored.clientNonce,
+      playerId: stored.playerId ?? null,
+    };
+  }
+
   return {
-    phase: 'connecting',
     roomId,
-    peerId: null,
-    connectedTo: null,
-    lastMessage: null,
-    error: null,
+    displayName,
+    clientNonce: makeClientNonce(roomId),
+    playerId: null,
   };
 }
 
-function stringifyEvent(value: unknown) {
-  if (typeof value === 'string') return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return '[unserializable message]';
-  }
+function persistIdentity(identity: StoredClientIdentity): void {
+  writeLocalStorage<StoredClientIdentity>(clientStorageKey(identity.roomId), identity);
+  writeSessionStorage(sessionStorageKey(), {
+    mode: 'client',
+    roomId: identity.roomId,
+    displayName: identity.displayName,
+  });
 }
 
-export async function createPeerClient(roomId: string): Promise<PeerClientHandle> {
+function isServerMessage(value: unknown): value is ServerMessage {
+  return Boolean(value && typeof value === 'object' && typeof (value as ServerMessage).type === 'string');
+}
+
+function isWelcomeMessage(value: unknown): value is ServerWelcomeMessage {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      (value as ServerWelcomeMessage).type === 'WELCOME' &&
+      typeof (value as ServerWelcomeMessage).roomCode === 'string' &&
+      typeof (value as ServerWelcomeMessage).playerId === 'string',
+  );
+}
+
+function isPublicMessage(value: unknown): value is ServerPublicStateMessage {
+  return Boolean(value && typeof value === 'object' && (value as ServerPublicStateMessage).type === 'PUBLIC_STATE');
+}
+
+function isPrivateMessage(value: unknown): value is ServerPrivateStateMessage {
+  return Boolean(value && typeof value === 'object' && (value as ServerPrivateStateMessage).type === 'PRIVATE_STATE');
+}
+
+function isErrorMessage(value: unknown): value is ServerErrorMessage {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      (value as ServerErrorMessage).type === 'ERROR' &&
+      typeof (value as ServerErrorMessage).message === 'string',
+  );
+}
+
+export async function createPeerClient(roomId: string, options: ClientOptions = {}): Promise<PeerClientHandle> {
   if (typeof window === 'undefined') {
     throw new Error('PeerJS client requires a browser environment.');
   }
 
+  const displayName = options.displayName?.trim() || 'Player';
+  const identity = loadIdentity(roomId, displayName);
+  persistIdentity(identity);
+
   const { default: Peer } = (await import('peerjs')) as PeerModule;
   const listeners = new Set<(snapshot: ClientNetworkSnapshot) => void>();
-  let snapshot = initialSnapshot(roomId);
   let peer: ClientPeerInstance | null = null;
   let connection: ClientConnection | null = null;
+  let snapshot: ClientNetworkSnapshot = {
+    phase: 'connecting',
+    roomId,
+    peerId: null,
+    connectedTo: null,
+    playerId: identity.playerId as PlayerId | null,
+    displayName: identity.displayName,
+    clientNonce: identity.clientNonce,
+    publicState: null,
+    privateState: null,
+    lastMessage: null,
+    error: null,
+    restored: Boolean(identity.playerId),
+  };
+  let destroyed = false;
 
   const emit = () => {
     listeners.forEach((listener) => listener(snapshot));
+  };
+
+  const sendJoin = () => {
+    if (!connection?.open) {
+      return;
+    }
+
+    const joinMessage: ClientJoinMessage = {
+      type: 'JOIN',
+      roomCode: roomId.toUpperCase() as RoomCode,
+      displayName: snapshot.displayName,
+      clientNonce: snapshot.clientNonce,
+    };
+    connection.send(joinMessage);
+    const resyncMessage: ClientResyncMessage = { type: 'REQUEST_RESYNC' };
+    connection.send(resyncMessage);
+  };
+
+  const applyServerMessage = (message: unknown) => {
+    if (!isServerMessage(message)) {
+      snapshot = {
+        ...snapshot,
+        phase: 'error',
+        error: 'Received an unrecognized server payload.',
+        lastMessage: 'server:invalid',
+      };
+      emit();
+      return;
+    }
+
+    if (isWelcomeMessage(message)) {
+      snapshot = {
+        ...snapshot,
+        phase: 'joined',
+        connectedTo: message.roomCode,
+        playerId: message.playerId as PlayerId,
+        error: null,
+        lastMessage: 'server:welcome',
+      };
+      identity.playerId = message.playerId;
+      persistIdentity(identity);
+      emit();
+      return;
+    }
+
+    if (isPublicMessage(message)) {
+      snapshot = {
+        ...snapshot,
+        phase: snapshot.playerId ? 'synced' : 'joined',
+        publicState: message.state,
+        error: null,
+        lastMessage: `server:public:${message.state.phase}`,
+      };
+      emit();
+      return;
+    }
+
+    if (isPrivateMessage(message)) {
+      snapshot = {
+        ...snapshot,
+        phase: 'synced',
+        privateState: message.state,
+        error: null,
+        lastMessage: `server:private:${message.state.phase}`,
+      };
+      emit();
+      return;
+    }
+
+    if (isErrorMessage(message)) {
+      snapshot = {
+        ...snapshot,
+        phase: 'error',
+        error: message.message,
+        lastMessage: 'server:error',
+      };
+      emit();
+      return;
+    }
+
+    snapshot = {
+      ...snapshot,
+      phase: 'error',
+      error: 'Unsupported server message.',
+      lastMessage: 'server:unsupported',
+    };
+    emit();
   };
 
   try {
@@ -78,8 +270,6 @@ export async function createPeerClient(roomId: string): Promise<PeerClientHandle
       },
     });
   } catch (error) {
-    // Fail-safe for browsers/tests where PeerJS cannot construct a client peer yet
-    // (for example, unsupported WebRTC surfaces or blocked runtime permissions).
     snapshot = {
       ...snapshot,
       phase: 'error',
@@ -97,15 +287,23 @@ export async function createPeerClient(roomId: string): Promise<PeerClientHandle
         return () => listeners.delete(listener);
       },
       send() {},
+      requestResync() {},
       destroy() {},
     };
   }
 
-  peer.on('open', (peerId: string) => {
+  peer.on('open', (peerId: unknown) => {
+    const typedPeerId = typeof peerId === 'string' ? peerId : null;
+    if (destroyed) {
+      return;
+    }
+
     snapshot = {
       ...snapshot,
-      peerId,
+      phase: 'connecting',
+      peerId: typedPeerId,
       lastMessage: 'client:open',
+      error: null,
     };
     emit();
 
@@ -127,20 +325,17 @@ export async function createPeerClient(roomId: string): Promise<PeerClientHandle
     connection.on('open', () => {
       snapshot = {
         ...snapshot,
-        phase: 'connected',
+        phase: 'connecting',
         connectedTo: roomId,
         lastMessage: 'client:connected',
         error: null,
       };
       emit();
+      sendJoin();
     });
 
     connection.on('data', (data: unknown) => {
-      snapshot = {
-        ...snapshot,
-        lastMessage: `client:data:${stringifyEvent(data)}`,
-      };
-      emit();
+      applyServerMessage(data);
     });
 
     connection.on('close', () => {
@@ -174,7 +369,7 @@ export async function createPeerClient(roomId: string): Promise<PeerClientHandle
     emit();
   });
 
-  const handle = {
+  return {
     get snapshot() {
       return snapshot;
     },
@@ -183,28 +378,37 @@ export async function createPeerClient(roomId: string): Promise<PeerClientHandle
       listener(snapshot);
       return () => listeners.delete(listener);
     },
-    send(data: unknown) {
+    send(data: ClientMessage) {
       if (connection?.open) {
         connection.send(data);
         snapshot = {
           ...snapshot,
-          lastMessage: `client:send:${stringifyEvent(data)}`,
+          lastMessage: `client:send:${data.type}`,
+        };
+        emit();
+      }
+    },
+    requestResync() {
+      if (connection?.open) {
+        const message: ClientResyncMessage = { type: 'REQUEST_RESYNC' };
+        connection.send(message);
+        snapshot = {
+          ...snapshot,
+          lastMessage: 'client:resync',
         };
         emit();
       }
     },
     destroy() {
+      destroyed = true;
       connection?.close();
       peer?.destroy();
       snapshot = {
         ...snapshot,
         phase: 'closed',
-        connectedTo: null,
         lastMessage: 'client:destroy',
       };
       emit();
     },
-  } satisfies PeerClientHandle;
-
-  return handle;
+  };
 }
