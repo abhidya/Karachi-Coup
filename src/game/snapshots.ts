@@ -28,6 +28,7 @@ export function toPublicGameState(state: HostGameState): PublicGameState {
 export function toPrivatePlayerState(state: HostGameState, playerId: PlayerId): PrivatePlayerState {
   const player = state.playersById[playerId];
   if (!player) throw new Error(`Unknown player: ${playerId}`);
+  const forcedBeizzati = player.rupees >= 10;
   return {
     roomCode: state.roomCode,
     gameId: state.gameId,
@@ -41,7 +42,9 @@ export function toPrivatePlayerState(state: HostGameState, playerId: PlayerId): 
     isTurn: state.activePlayerId === playerId,
     availableActions:
       state.phase === 'TURN_START' && state.activePlayerId === playerId && !player.eliminated
-        ? ['CHAI_PAISA', 'RISHTEDAAR_HELP', 'KIRAYA_COLLECTION', 'POLICE_WALA_RAID', 'BHAI_KA_SCENE', 'ZARDAAR_JUGAAD', 'FULL_BEIZZATI']
+        ? forcedBeizzati
+          ? ['FULL_BEIZZATI']
+          : ['CHAI_PAISA', 'RISHTEDAAR_HELP', 'KIRAYA_COLLECTION', 'POLICE_WALA_RAID', 'BHAI_KA_SCENE', 'ZARDAAR_JUGAAD', 'FULL_BEIZZATI']
         : [],
     pendingAction: state.pendingAction?.actorId === playerId ? state.pendingAction : null,
     pendingChallenge: state.pendingChallenge?.claimantId === playerId || state.pendingChallenge?.challengerId === playerId ? state.pendingChallenge : null,
@@ -60,5 +63,7 @@ export function summarizePublicState(state: HostGameState): string {
 export function publicActionButtons(state: HostGameState, playerId: PlayerId): ActionType[] {
   const player = state.playersById[playerId];
   if (!player || player.eliminated || state.activePlayerId !== playerId || state.phase !== 'TURN_START') return [];
-  return ['CHAI_PAISA', 'RISHTEDAAR_HELP', 'KIRAYA_COLLECTION', 'POLICE_WALA_RAID', 'BHAI_KA_SCENE', 'ZARDAAR_JUGAAD', 'FULL_BEIZZATI'];
+  return player.rupees >= 10
+    ? ['FULL_BEIZZATI']
+    : ['CHAI_PAISA', 'RISHTEDAAR_HELP', 'KIRAYA_COLLECTION', 'POLICE_WALA_RAID', 'BHAI_KA_SCENE', 'ZARDAAR_JUGAAD', 'FULL_BEIZZATI'];
 }

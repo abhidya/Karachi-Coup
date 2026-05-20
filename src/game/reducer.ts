@@ -280,6 +280,11 @@ function declareAction(state: HostGameState, action: PendingAction): HostGameSta
   const actor = state.playersById[action.actorId];
   if (!actor || !isPlayerAlive(actor) || state.activePlayerId !== action.actorId || state.phase !== 'TURN_START') return state;
   if (actor.rupees >= 10 && action.actionType !== 'FULL_BEIZZATI') return state;
+  if (actor.rupees < action.cost) return state;
+  if (action.needsTarget) {
+    const target = action.targetId ? state.playersById[action.targetId] : null;
+    if (!target || !isPlayerAlive(target)) return state;
+  }
 
   switch (action.actionType) {
     case 'CHAI_PAISA':

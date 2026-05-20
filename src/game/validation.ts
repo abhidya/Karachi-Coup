@@ -90,6 +90,12 @@ function validatePendingJugaad(jugaad: PendingJugaad, path: string, issues: Vali
   }
 }
 
+function isLegalTarget(state: HostGameState, targetId: string | null | undefined): boolean {
+  if (!targetId) return false;
+  const target = state.playersById[targetId as PlayerId];
+  return Boolean(target && isPlayerAlive(target));
+}
+
 export function validateGameState(state: HostGameState): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
@@ -185,6 +191,9 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
     if (config.needsTarget && !message.targetId) {
       return { ok: false, reason: 'That action needs a target.' };
     }
+    if (config.needsTarget && !isLegalTarget(state, message.targetId)) {
+      return { ok: false, reason: 'That target is not legal.' };
+    }
     if (!config.needsTarget && message.targetId !== undefined && message.targetId !== null) {
       return { ok: false, reason: 'That action does not take a target.' };
     }
@@ -192,10 +201,28 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
   }
 
   if (message.type === 'CHALLENGE') {
-    return { ok: state.phase === 'CHALLENGE_WINDOW', reason: state.phase === 'CHALLENGE_WINDOW' ? undefined : 'No challenge window is open.' };
+    if (state.phase !== 'CHALLENGE_WINDOW' || !state.pendingChallenge || !state.pendingAction) {
+      return { ok: false, reason: 'No challenge window is open.' };
+    }
+    if (state.pendingChallenge.claimantId === playerId) {
+      return { ok: false, reason: 'Claimant cannot challenge their own claim.' };
+    }
+    if (!state.pendingChallenge.eligibleChallengers.includes(playerId)) {
+      return { ok: false, reason: 'That player cannot challenge right now.' };
+    }
+    return { ok: true };
   }
   if (message.type === 'PASS_CHALLENGE') {
-    return { ok: state.phase === 'CHALLENGE_WINDOW', reason: state.phase === 'CHALLENGE_WINDOW' ? undefined : 'No challenge window is open.' };
+    if (state.phase !== 'CHALLENGE_WINDOW' || !state.pendingChallenge) {
+      return { ok: false, reason: 'No challenge window is open.' };
+    }
+    if (!state.pendingChallenge.eligibleChallengers.includes(playerId)) {
+      return { ok: false, reason: 'That player cannot pass this challenge.' };
+    }
+    if (state.pendingChallenge.claimantId === playerId) {
+      return { ok: false, reason: 'Claimant cannot pass their own challenge window.' };
+    }
+    return { ok: true };
   }
   if (message.type === 'BLOCK') {
     if (state.phase !== 'BLOCK_WINDOW' || !state.pendingAction) {
@@ -205,19 +232,55 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
     if (required.length > 0 && !required.includes(message.role)) {
       return { ok: false, reason: 'Illegal block role.' };
     }
+    if (state.pendingAction.actionType === 'POLICE_WALA_RAID' || state.pendingAction.actionType === 'BHAI_KA_SCENE') {
+      if (state.pendingAction.targetId !== playerId) {
+        return { ok: false, reason: 'Only the target may block that action.' };
+      }
+    }
+    if (state.pendingAction.actionType === 'RISHTEDAAR_HELP' && message.role !== 'MALIK_SAAB') {
+      return { ok: false, reason: 'Only Malik Saab can block that action.' };
+    }
     return { ok: true };
   }
   if (message.type === 'PASS_BLOCK') {
-    return { ok: state.phase === 'BLOCK_WINDOW', reason: state.phase === 'BLOCK_WINDOW' ? undefined : 'No block window is open.' };
+    if (state.phase !== 'BLOCK_WINDOW' || !state.pendingBlock) {
+      return { ok: false, reason: 'No block window is open.' };
+    }
+    return { ok: true };
   }
   if (message.type === 'CHOOSE_CONNECTION_TO_BURN') {
-    return { ok: state.phase === 'AWAITING_BURN', reason: state.phase === 'AWAITING_BURN' ? undefined : 'No burn is pending.' };
+    if (state.phase !== 'AWAITING_BURN' || !state.pendingBurn) {
+      return { ok: false, reason: 'No burn is pending.' };
+    }
+    if (state.pendingBurn.playerId !== playerId) {
+      return { ok: false, reason: 'That player is not expected to burn.' };
+    }
+    const player = state.playersById[playerId];
+    if (!player || !player.hiddenConnections.some((card) => card.id === message.connectionId)) {
+      return { ok: false, reason: 'That connection is not in the player hand.' };
+    }
+    return { ok: true };
   }
   if (message.type === 'JUGAAD_RETURN') {
-    return {
-      ok: state.phase === 'AWAITING_JUGAAD_RETURN' && message.returnedConnectionIds.length === 2,
-      reason: state.phase === 'AWAITING_JUGAAD_RETURN' ? undefined : 'No jugaad return is pending.',
-    };
+    if (state.phase !== 'AWAITING_JUGAAD_RETURN' || !state.pendingJugaad) {
+      return { ok: false, reason: 'No jugaad return is pending.' };
+    }
+    if (state.pendingJugaad.playerId !== playerId) {
+      return { ok: false, reason: 'That player is not expected to return cards.' };
+    }
+    if (message.returnedConnectionIds.length !== 2) {
+      return { ok: false, reason: 'Exactly two cards must be returned.' };
+    }
+    const player = state.playersById[playerId];
+    if (!player) {
+      return { ok: false, reason: 'Unknown player.' };
+    }
+    const combined = [...player.hiddenConnections, ...state.pendingJugaad.drawnConnections];
+    const combinedIds = new Set(combined.map((card) => card.id as string));
+    if (!message.returnedConnectionIds.every((id) => combinedIds.has(id))) {
+      return { ok: false, reason: 'Returned cards must come from the combined hand and drawn cards.' };
+    }
+    return { ok: true };
   }
 
   return { ok: false, reason: 'Unsupported message.' };

@@ -1,6 +1,20 @@
 # Karachi Coup
 
-PeerJS-backed room flow for Karachi Coup with host/join identity, persisted room state, and public/private game snapshots.
+Karachi Coup is a Karachi-themed bluffing party game inspired by Coup.
+
+Cards are Connections, coins are Rupees, influence is Setting, challenges are Call Bakwaas, blocks are Use Setting, and Coup is Full Beizzati.
+
+This repo is a static React + TypeScript + Vite app. It uses PeerJS data channels for browser-to-browser play. No backend, database, auth, server functions, Firebase, Supabase, or WebSocket server.
+
+## What the MVP does
+
+- Host creates a room.
+- Players join by room code and display name.
+- Host is authoritative.
+- Each player gets only their own private Connections.
+- Public state and private state are synced over PeerJS.
+- Host state persists in `localStorage`.
+- Hash routing keeps refreshes from 404ing on GitHub Pages.
 
 ## Run locally
 
@@ -9,21 +23,47 @@ npm install
 npm run dev
 ```
 
-## Build and test
+## Test
 
 ```bash
-npm run build
 npm test
 ```
 
-## Flow
+## Build
 
-- **Host** creates a room, publishes a room link, and controls the lobby/game state.
-- **Join** enters the room code plus a display name.
-- The host assigns a stable player identity from the client JOIN payload and persists room state in local storage.
-- Clients keep a reusable nonce, can request resync, and receive both public and private snapshots from the host.
+```bash
+npm run build
+```
 
-## Deployment
+## Preview
 
-The Vite base path is configured for GitHub Pages at `/Karachi-Coup/`.
+```bash
+npm run preview
+```
 
+## GitHub Pages deployment
+
+The Vite base path is set for `/Karachi-Coup/`.
+
+Use the GitHub Actions workflow in `.github/workflows/deploy.yml` to build and publish `dist/` to GitHub Pages.
+
+## How to play
+
+1. Host opens the app and creates a room.
+2. Share the room code or link.
+3. Players join with a display name.
+4. Host starts the game.
+5. Players take turns, bluff, call bakwaas, use setting, burn Connections, and try to be the last one standing.
+
+## Asset naming notes
+
+The app keeps image filenames behind `src/game/assets.ts` so components use semantic keys instead of repeated raw filenames.
+
+## PeerJS limitations
+
+- PeerJS signaling is external.
+- The host is authoritative and can technically cheat.
+- NAT, firewall, or browser issues may prevent some connections.
+- TURN is not included in this MVP.
+- Reconnect is best-effort, not guaranteed.
+- Keep the host browser open during play.
