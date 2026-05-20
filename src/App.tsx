@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, Field, Panel, Pill, Row, Stack } from './components/Ui';
+import { GAME_ASSETS } from './game/assets';
 import { GAME_THEME, labels } from './game/theme';
-import type { ActionType, ClientMessage, HostLobbyPlayerView, PublicGameState } from './game/types';
+import { ACTION_CONFIG } from './game/rules';
+import type { ActionType, ClientMessage, HostLobbyPlayerView, PublicGameState, Role } from './game/types';
 import { createPeerClient, type ClientNetworkSnapshot, type PeerClientHandle } from './network/peerClient';
 import { createPeerHost, type HostNetworkSnapshot, type PeerHostHandle } from './network/peerHost';
 import { readSessionStorage, sessionStorageKey, writeSessionStorage } from './network/storage';
@@ -17,7 +19,6 @@ type StoredSession = {
 
 const ALL_ROUTES: RouteName[] = ['home', 'host', 'join', 'lobby', 'game'];
 const TARGET_ACTIONS: readonly ActionType[] = ['KIRAYA_COLLECTION', 'POLICE_WALA_RAID', 'BHAI_KA_SCENE', 'FULL_BEIZZATI'];
-const BLOCK_ROLES = ['MALIK_SAAB', 'BHAI', 'POLICE_WALA', 'MUMMA', 'ZARDAAR_CHOR'] as const;
 
 function readHashRoute(): { route: RouteName; roomId: string } {
   const raw = window.location.hash.replace(/^#\/?/, '');
@@ -256,6 +257,121 @@ function isTargetedAction(actionType: ActionType) {
   return TARGET_ACTIONS.includes(actionType);
 }
 
+function roleLabel(role: Role) {
+  return labels.roleTheme[role].label;
+}
+
+function roleAsset(role: Role) {
+  switch (role) {
+    case 'MALIK_SAAB':
+      return GAME_ASSETS.roles.malik;
+    case 'BHAI':
+      return GAME_ASSETS.roles.bhai;
+    case 'POLICE_WALA':
+      return GAME_ASSETS.roles.police;
+    case 'ZARDAAR_CHOR':
+      return GAME_ASSETS.roles.zardaar;
+    case 'MUMMA':
+      return GAME_ASSETS.roles.mumma;
+    default:
+      return GAME_ASSETS.roles.malik;
+  }
+}
+
+function actionAsset(actionType: ActionType) {
+  switch (actionType) {
+    case 'CHAI_PAISA':
+      return GAME_ASSETS.actions.income;
+    case 'RISHTEDAAR_HELP':
+      return GAME_ASSETS.actions.foreignAid;
+    case 'KIRAYA_COLLECTION':
+      return GAME_ASSETS.actions.tax;
+    case 'POLICE_WALA_RAID':
+      return GAME_ASSETS.actions.steal;
+    case 'BHAI_KA_SCENE':
+      return GAME_ASSETS.actions.assassinate;
+    case 'ZARDAAR_JUGAAD':
+      return GAME_ASSETS.actions.exchange;
+    case 'FULL_BEIZZATI':
+      return GAME_ASSETS.actions.coup;
+    default:
+      return GAME_ASSETS.actions.income;
+  }
+}
+
+function legalBlockRoles(actionType: ActionType | null | undefined, targetId: string | null, playerId: string | null): Role[] {
+  if (!actionType) return [];
+  if (actionType === 'RISHTEDAAR_HELP') return ['MALIK_SAAB'];
+  if (actionType === 'POLICE_WALA_RAID') {
+    return targetId && playerId && targetId === playerId ? ['POLICE_WALA', 'ZARDAAR_CHOR'] : [];
+  }
+  if (actionType === 'BHAI_KA_SCENE') {
+    return targetId && playerId && targetId === playerId ? ['MUMMA'] : [];
+  }
+  return [];
+}
+
+function ArtCard({
+  src,
+  title,
+  subtitle,
+  active,
+  tone = 'neutral',
+  onClick,
+  disabled,
+}: {
+  src: string;
+  title: string;
+  subtitle?: string;
+  active?: boolean;
+  tone?: 'neutral' | 'success' | 'warn' | 'danger';
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`art-card art-card--${tone} ${active ? 'art-card--active' : ''}`}
+      onClick={onClick}
+      disabled={disabled || !onClick}
+    >
+      <img className="art-card__image" src={src} alt={title} />
+      <span className="art-card__title">{title}</span>
+      {subtitle ? <span className="art-card__subtitle">{subtitle}</span> : null}
+    </button>
+  );
+}
+
+function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="modal" role="dialog" aria-modal="true">
+      <button className="modal__scrim" type="button" aria-label="Close modal" onClick={onClose} />
+      <section className="modal__sheet">
+        <header className="modal__header">
+          <div>
+            <p className="eyebrow">{subtitle}</p>
+            <h3>{title}</h3>
+          </div>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </header>
+        <div className="modal__body">{children}</div>
+      </section>
+    </div>
+  );
+}
+
 export function App() {
   const { route, roomId: routeRoomId, navigate } = useHashRoute();
   const [mode, setMode] = useState<ConnectionMode>('idle');
@@ -264,6 +380,9 @@ export function App() {
   const [joinCode, setJoinCode] = useState(routeRoomId);
   const [hostSnapshot, setHostSnapshot] = useState<HostNetworkSnapshot | null>(null);
   const [clientSnapshot, setClientSnapshot] = useState<ClientNetworkSnapshot | null>(null);
+  const [pendingActionType, setPendingActionType] = useState<ActionType | null>(null);
+  const [pendingTargetId, setPendingTargetId] = useState<string>('');
+  const [jugaadReturnIds, setJugaadReturnIds] = useState<string[]>([]);
 
   const hostHandleRef = usePeerHost(roomId || null, mode === 'host', setHostSnapshot);
   const clientHandleRef = usePeerClient(roomId || null, mode === 'client', displayName, setClientSnapshot);
@@ -306,7 +425,32 @@ export function App() {
   const roomLink = roomId ? formatRoomLink(roomId) : '';
   const isGamePhase = publicState?.phase && publicState.phase !== 'LOBBY';
   const turnOwner = publicState?.players.find((player) => player.isTurn);
-  const opponentId = publicState?.players.find((player) => player.id !== privateState?.playerId && !player.eliminated)?.id ?? null;
+  const currentPlayerId = privateState?.playerId ?? null;
+  const livingOpponents = useMemo(
+    () =>
+      publicState?.players.filter((player) => player.id !== currentPlayerId && !player.eliminated) ?? [],
+    [currentPlayerId, publicState?.players],
+  );
+  const eligibleBlockRoles = legalBlockRoles(publicState?.pendingAction?.actionType ?? null, publicState?.pendingAction?.targetId ?? null, currentPlayerId);
+  const pendingChallenge = privateState?.pendingChallenge ?? null;
+  const challengePrompt =
+    pendingChallenge &&
+    currentPlayerId &&
+    pendingChallenge.claimantId !== currentPlayerId &&
+    pendingChallenge.eligibleChallengers.includes(currentPlayerId)
+      ? pendingChallenge
+      : null;
+  const canSeeBlockPrompt = Boolean(publicState?.phase === 'BLOCK_WINDOW' && eligibleBlockRoles.length);
+  const activeBurnPrompt = privateState?.pendingBurn?.playerId === currentPlayerId ? privateState.pendingBurn : null;
+  const activeJugaadPrompt = privateState?.pendingJugaad?.playerId === currentPlayerId ? privateState.pendingJugaad : null;
+  const screenBackground =
+    route === 'home'
+      ? GAME_ASSETS.backgrounds.home
+      : route === 'game' && publicState?.phase === 'GAME_OVER'
+        ? GAME_ASSETS.backgrounds.gameOver
+        : route === 'game'
+          ? GAME_ASSETS.backgrounds.table
+          : GAME_ASSETS.backgrounds.lobby;
 
   useEffect(() => {
     if (mode === 'host' && hostSnapshot?.peerId && (route === 'host' || route === 'home')) {
@@ -325,6 +469,19 @@ export function App() {
       navigate('game', roomId);
     }
   }, [isGamePhase, navigate, route, roomId]);
+
+  useEffect(() => {
+    if (!privateState?.pendingJugaad) {
+      setJugaadReturnIds([]);
+    }
+  }, [privateState?.pendingJugaad]);
+
+  useEffect(() => {
+    if (pendingActionType && !privateState?.availableActions.includes(pendingActionType)) {
+      setPendingActionType(null);
+      setPendingTargetId('');
+    }
+  }, [pendingActionType, privateState?.availableActions]);
 
   const createRoom = () => {
     const nextRoomId = generateRoomId();
@@ -378,30 +535,60 @@ export function App() {
   };
 
   const declareAction = (actionType: ActionType) => {
-    const targetId = isTargetedAction(actionType) ? opponentId : null;
-    sendClientMessage({ type: 'DECLARE_ACTION', actionType, targetId });
+    if (!privateState?.availableActions.includes(actionType)) {
+      return;
+    }
+    if (isTargetedAction(actionType)) {
+      setPendingActionType(actionType);
+      setPendingTargetId('');
+      return;
+    }
+    sendClientMessage({ type: 'DECLARE_ACTION', actionType, targetId: null });
+  };
+
+  const confirmTargetAction = (targetId: string) => {
+    if (!pendingActionType) return;
+    sendClientMessage({ type: 'DECLARE_ACTION', actionType: pendingActionType, targetId });
+    setPendingActionType(null);
+    setPendingTargetId('');
   };
 
   const challenge = () => sendClientMessage({ type: 'CHALLENGE' });
   const passChallenge = () => sendClientMessage({ type: 'PASS_CHALLENGE' });
   const passBlock = () => sendClientMessage({ type: 'PASS_BLOCK' });
-  const chooseBurn = (connectionId: string) =>
-    sendClientMessage({ type: 'CHOOSE_CONNECTION_TO_BURN', connectionId });
-  const chooseBlockRole = (role: (typeof BLOCK_ROLES)[number]) => sendClientMessage({ type: 'BLOCK', role });
+  const chooseBurn = (connectionId: string) => sendClientMessage({ type: 'CHOOSE_CONNECTION_TO_BURN', connectionId });
+  const chooseBlockRole = (role: Role) => sendClientMessage({ type: 'BLOCK', role });
+  const chooseJugaadReturn = () => {
+    if (jugaadReturnIds.length === 2) {
+      sendClientMessage({ type: 'JUGAAD_RETURN', returnedConnectionIds: [jugaadReturnIds[0]!, jugaadReturnIds[1]!] });
+      setJugaadReturnIds([]);
+    }
+  };
+  const toggleJugaadCard = (connectionId: string) => {
+    setJugaadReturnIds((current) => {
+      if (current.includes(connectionId)) return current.filter((id) => id !== connectionId);
+      if (current.length >= 2) return current;
+      return [...current, connectionId];
+    });
+  };
+  const cancelTargetPicker = () => {
+    setPendingActionType(null);
+    setPendingTargetId('');
+  };
 
   const publicSummary = publicState ? `${gamePhaseLabel(publicState.phase)} · ${publicState.currentScene}` : 'Waiting for room sync';
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" style={{ backgroundImage: `linear-gradient(180deg, rgba(6, 10, 18, 0.62), rgba(6, 10, 18, 0.86)), url(${screenBackground})` }}>
       <div className="app-shell__backdrop" aria-hidden="true" />
       <div className="app-shell__inner">
         <header className="app-header">
           <div className="app-header__hero">
             <p className="eyebrow">{GAME_THEME.title}</p>
-            <h1>Host, join, and play from real PeerJS rooms.</h1>
+            <h1>Bluff. Setting. Rupees. Full Beizzati.</h1>
             <p className="lede">
-              JOIN identity, resync, and public/private snapshots are wired into the live room flow so host and
-              players see the same state after refreshes and reconnects.
+              Host runs the table. Players join by room code. Hidden Connections stay private, public snapshots stay
+              clean, and every response prompt is driven by the host-authoritative PeerJS room.
             </p>
           </div>
           <div className="app-header__meta">
@@ -517,13 +704,14 @@ export function App() {
               </Panel>
             </section>
 
-            <Panel eyebrow="Networking" title="Host snapshot">
-              <Stack gap="sm">
-                <p>Peer id: {hostSnapshot?.peerId ?? 'Not opened yet'}</p>
-                <p>Peers: {hostSnapshot?.peers.length ? hostSnapshot.peers.join(', ') : 'None connected'}</p>
-                <p>Restored: {hostSnapshot?.restored ? 'Yes' : 'No'}</p>
-                <p>Last event: {snapshotActivity(activeSnapshot)}</p>
-                {hostSnapshot?.error ? <p className="error-text">{hostSnapshot.error}</p> : null}
+              <Panel eyebrow="Networking" title="Host snapshot">
+                <Stack gap="sm">
+                  <p>Peer id: {hostSnapshot?.peerId ?? 'Not opened yet'}</p>
+                  <p>Peers: {hostSnapshot?.peers.length ? hostSnapshot.peers.join(', ') : 'None connected'}</p>
+                  <p>Restored: {hostSnapshot?.restored ? 'Yes' : 'No'}</p>
+                  <p>Last event: {snapshotActivity(activeSnapshot)}</p>
+                  <p className="muted">Host device must stay open. Host is table authority only, not a player seat.</p>
+                  {hostSnapshot?.error ? <p className="error-text">{hostSnapshot.error}</p> : null}
                 <Row>
                   <Button onClick={startGame} disabled={mode !== 'host' || !roomId}>
                     Start game
@@ -641,8 +829,18 @@ export function App() {
                         <Pill tone={player.eliminated ? 'danger' : player.isTurn ? 'success' : 'neutral'}>
                           {player.eliminated ? 'Out' : player.isTurn ? 'Turn' : 'Ready'}
                         </Pill>
-                        <span>{player.rupees}₹</span>
-                        <span>{player.hiddenConnectionCount} cards</span>
+                        <span className="rupee-chip">{player.rupees} Rupees</span>
+                        <span className="slot-row">
+                          {Array.from({ length: player.hiddenConnectionCount }).map((_, index) => (
+                            <img key={`${player.id}-hidden-${index}`} src={GAME_ASSETS.slots.hidden} alt="Hidden connection" />
+                          ))}
+                        </span>
+                        <span className="slot-row">
+                          {player.revealedConnections.map((role, index) => (
+                            <img key={`${player.id}-revealed-${index}`} src={GAME_ASSETS.slots.revealed} alt={`${roleLabel(role)} revealed`} />
+                          ))}
+                        </span>
+                        {player.eliminated ? <img className="badge-icon" src={GAME_ASSETS.badges.eliminated} alt="Eliminated" /> : null}
                       </div>
                     </li>
                   )) ?? <li>No players yet</li>}
@@ -677,20 +875,16 @@ export function App() {
                       Actions:{' '}
                       <strong>{privateState.availableActions.length ? privateState.availableActions.map(actionLabel).join(', ') : 'None'}</strong>
                     </p>
-                    {privateState.pendingBurn ? (
-                      <Stack gap="sm">
-                        <p>Choose a connection to burn:</p>
-                        <Row>
-                          {privateState.hiddenConnections.map((card) => (
-                            <Button key={card.id} onClick={() => chooseBurn(card.id)} variant="danger">
-                              Burn {card.role}
-                            </Button>
-                          ))}
-                        </Row>
-                      </Stack>
-                    ) : null}
-                    {privateState.pendingJugaad ? (
-                      <p className="muted">Zardaar Jugaad return is pending for {privateState.pendingJugaad.playerId}.</p>
+                    <div className="hand-grid">
+                      {privateState.hiddenConnections.map((card) => (
+                        <ArtCard key={card.id} src={roleAsset(card.role)} title={roleLabel(card.role)} />
+                      ))}
+                    </div>
+                    {activeBurnPrompt ? <p className="muted">Burn Connection modal waiting below.</p> : null}
+                    {activeJugaadPrompt ? (
+                      <p className="muted">
+                        Return 2 Connections from {privateState.hiddenConnections.length + activeJugaadPrompt.drawnConnections.length} total cards.
+                      </p>
                     ) : null}
                   </Stack>
                 ) : (
@@ -702,33 +896,74 @@ export function App() {
             <section className="hero-grid">
               <Panel eyebrow="Actions" title="Game controls">
                 <Stack gap="sm">
+                  {privateState?.availableActions.length ? (
+                    <Row>
+                      {privateState.availableActions.map((actionType) => (
+                        <ArtCard
+                          key={actionType}
+                          src={actionAsset(actionType)}
+                          title={actionLabel(actionType)}
+                          subtitle={
+                            isTargetedAction(actionType)
+                              ? 'Choose a living target'
+                              : ACTION_CONFIG[actionType].challengeable
+                                ? 'Bakwaas possible'
+                                : 'No challenge'
+                          }
+                          onClick={mode === 'client' ? () => declareAction(actionType) : undefined}
+                        />
+                      ))}
+                    </Row>
+                  ) : (
+                    <p className="muted">
+                      {privateState
+                        ? privateState.isTurn
+                          ? 'No legal actions now.'
+                          : 'Waiting for your turn.'
+                        : 'Join a room to play.'}
+                    </p>
+                  )}
+
+                  {challengePrompt ? (
+                    <Stack gap="sm">
+                      <p className="muted">
+                        {'eligibleChallengers' in challengePrompt ? 'You may Call Bakwaas now.' : 'Challenge window open.'}
+                      </p>
+                      <Row>
+                        <Button onClick={challenge} disabled={mode !== 'client'}>
+                          {labels.responseLabels.CHALLENGE}
+                        </Button>
+                        <Button variant="secondary" onClick={passChallenge} disabled={mode !== 'client'}>
+                          {labels.responseLabels.PASS}
+                        </Button>
+                      </Row>
+                    </Stack>
+                  ) : null}
+
+                  {canSeeBlockPrompt && publicState?.pendingAction ? (
+                    <Stack gap="sm">
+                      <p className="muted">Use Setting window open.</p>
+                      <Row>
+                        {eligibleBlockRoles.map((role) => (
+                          <Button key={role} onClick={() => chooseBlockRole(role)} disabled={mode !== 'client'}>
+                            {labels.responseLabels.BLOCK} · {roleLabel(role)}
+                          </Button>
+                        ))}
+                        <Button variant="secondary" onClick={passBlock} disabled={mode !== 'client'}>
+                          {labels.responseLabels.PASS}
+                        </Button>
+                      </Row>
+                    </Stack>
+                  ) : null}
+
+                  {!challengePrompt && !canSeeBlockPrompt ? (
+                    <p className="muted">No response prompt right now.</p>
+                  ) : null}
+
                   <Row>
-                    {privateState?.availableActions.map((actionType) => (
-                      <Button key={actionType} onClick={() => declareAction(actionType)} disabled={mode !== 'client'}>
-                        {actionLabel(actionType)}
-                      </Button>
-                    )) ?? null}
-                  </Row>
-                  <Row>
-                    <Button onClick={challenge} disabled={mode !== 'client'}>
-                      Challenge
-                    </Button>
-                    <Button variant="secondary" onClick={passChallenge} disabled={mode !== 'client'}>
-                      Pass challenge
-                    </Button>
-                    <Button variant="ghost" onClick={passBlock} disabled={mode !== 'client'}>
-                      Pass block
-                    </Button>
                     <Button variant="ghost" onClick={requestResync}>
                       Resync
                     </Button>
-                  </Row>
-                  <Row>
-                    {BLOCK_ROLES.map((role) => (
-                      <Button key={role} variant="secondary" onClick={() => chooseBlockRole(role)} disabled={mode !== 'client'}>
-                        Block as {role}
-                      </Button>
-                    ))}
                   </Row>
                 </Stack>
               </Panel>
@@ -753,6 +988,41 @@ export function App() {
           </Stack>
         ) : null}
 
+        {publicState?.phase === 'GAME_OVER' ? (
+          <Panel
+            eyebrow="Game over"
+            title="Winner declared"
+            footer={mode === 'host' ? <Button onClick={resetRoom}>New game</Button> : null}
+          >
+            <Stack gap="sm">
+              <Row>
+                <img className="badge-icon badge-icon--large" src={GAME_ASSETS.badges.winner} alt="Winner" />
+                <div>
+                  <p className="eyebrow">Winner</p>
+                  <h3>{publicState.players.find((player) => player.id === publicState.winnerId)?.name ?? 'Unknown'}</h3>
+                  <p className="muted">Last Connection standing.</p>
+                </div>
+              </Row>
+              <ul className="player-list">
+                {publicState.players.map((player) => (
+                  <li key={player.id} className="player-list__row">
+                    <div>
+                      <strong>{player.name}</strong>
+                      <small>{player.eliminated ? 'Eliminated' : 'Alive'}</small>
+                    </div>
+                    <div className="player-list__meta">
+                      <Pill tone={player.id === publicState.winnerId ? 'success' : player.eliminated ? 'danger' : 'neutral'}>
+                        {player.id === publicState.winnerId ? 'Winner' : player.eliminated ? 'Out' : 'Alive'}
+                      </Pill>
+                      <span className="rupee-chip">{player.rupees} Rupees</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Stack>
+          </Panel>
+        ) : null}
+
         {route === 'home' ? null : (
           <footer className="screen-footer">
             <Button variant="ghost" onClick={leaveRoom} disabled={mode === 'idle'}>
@@ -761,6 +1031,90 @@ export function App() {
             <Pill tone="neutral">{mode}</Pill>
           </footer>
         )}
+
+        {pendingActionType ? (
+          <Modal
+            title={`Choose target for ${labels.actionLabels[pendingActionType]}`}
+            subtitle="Pick a living opponent"
+            onClose={cancelTargetPicker}
+          >
+            <Stack gap="sm">
+              <div className="target-grid">
+                {livingOpponents.map((player) => (
+                  <button
+                    key={player.id}
+                    type="button"
+                    className={`target-card ${pendingTargetId === player.id ? 'target-card--active' : ''}`}
+                    onClick={() => setPendingTargetId(player.id)}
+                  >
+                    <strong>{player.name}</strong>
+                    <span>{player.rupees} Rupees</span>
+                    <span>{player.hiddenConnectionCount} Connections</span>
+                    <span>{player.eliminated ? 'Eliminated' : 'Alive'}</span>
+                  </button>
+                ))}
+              </div>
+              <Row>
+                <Button onClick={() => confirmTargetAction(pendingTargetId)} disabled={!pendingTargetId}>
+                  Confirm target
+                </Button>
+                <Button variant="secondary" onClick={cancelTargetPicker}>
+                  Cancel
+                </Button>
+              </Row>
+            </Stack>
+          </Modal>
+        ) : null}
+
+        {activeBurnPrompt && privateState ? (
+          <Modal title="Burn Connection" subtitle="Choose one unrevealed connection" onClose={() => undefined}>
+            <Stack gap="sm">
+              <p className="muted">Choose one of your own hidden Connections to burn.</p>
+              <div className="hand-grid">
+                {privateState.hiddenConnections.map((card) => (
+                  <ArtCard
+                    key={card.id}
+                    src={roleAsset(card.role)}
+                    title={roleLabel(card.role)}
+                    subtitle="Burn it"
+                    tone="danger"
+                    onClick={() => chooseBurn(card.id)}
+                  />
+                ))}
+              </div>
+            </Stack>
+          </Modal>
+        ) : null}
+
+        {activeJugaadPrompt && privateState ? (
+          <Modal title="Zardaar Jugaad" subtitle="Return exactly 2 Connections" onClose={() => undefined}>
+            <Stack gap="sm">
+              <p className="muted">
+                Select 2 cards to return. Keep the rest. Drawn cards and hidden cards are shown together so the player
+                can choose the exact return set.
+              </p>
+              <Row>
+                <Pill tone="neutral">Selected {jugaadReturnIds.length}/2</Pill>
+                <Button onClick={chooseJugaadReturn} disabled={jugaadReturnIds.length !== 2}>
+                  Return 2 Connections
+                </Button>
+              </Row>
+              <div className="hand-grid">
+                {[...privateState.hiddenConnections, ...activeJugaadPrompt.drawnConnections].map((card) => (
+                  <ArtCard
+                    key={card.id}
+                    src={roleAsset(card.role)}
+                    title={roleLabel(card.role)}
+                    subtitle={jugaadReturnIds.includes(card.id) ? 'Returning' : 'Keep?'}
+                    active={jugaadReturnIds.includes(card.id)}
+                    tone={jugaadReturnIds.includes(card.id) ? 'warn' : 'neutral'}
+                    onClick={() => toggleJugaadCard(card.id)}
+                  />
+                ))}
+              </div>
+            </Stack>
+          </Modal>
+        ) : null}
       </div>
     </main>
   );

@@ -24,6 +24,12 @@ export const labels = {
     ZARDAAR_JUGAAD: 'Zardaar Jugaad',
     FULL_BEIZZATI: 'Full Beizzati',
   } satisfies Record<ActionType, string>,
+  responseLabels: {
+    CHALLENGE: 'Call Bakwaas',
+    PASS: 'Let It Slide',
+    BLOCK: 'Use Setting',
+    BURN: 'Burn Connection',
+  },
   phaseLabels: {
     LOBBY: 'Lobby',
     DEALING: 'Dealing',

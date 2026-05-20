@@ -41,7 +41,7 @@ describe('reducer challenges', () => {
   it('challenge: successful action proof shuffles the proven Connection back into the deck', () => {
     const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'KIRAYA_COLLECTION');
     const challenged = challenge(declared, toPlayerId('p2'));
-    expect(challenged.playersById[toPlayerId('p1')]!.revealedConnections).toContain('MALIK_SAAB');
+    expect(challenged.playersById[toPlayerId('p1')]!.revealedConnections).toEqual([]);
   });
 
   it('challenge: successful action proof gives the proving player one replacement Connection', () => {
@@ -54,6 +54,12 @@ describe('reducer challenges', () => {
     const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'KIRAYA_COLLECTION');
     const challenged = challenge(declared, toPlayerId('p2'));
     expect(challenged.playersById[toPlayerId('p1')]!.hiddenConnections).toHaveLength(2);
+  });
+
+  it('challenge: successful action proof does not permanently reveal the proven Connection', () => {
+    const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'KIRAYA_COLLECTION');
+    const challenged = challenge(declared, toPlayerId('p2'));
+    expect(challenged.playersById[toPlayerId('p1')]!.revealedConnections).toEqual([]);
   });
 
   it('challenge: successful action proof continues the original action', () => {
@@ -115,5 +121,22 @@ describe('reducer challenges', () => {
     const challenged = challenge(declared, toPlayerId('p2'));
     const total = challenged.deck.length + challenged.discardPile.length + Object.values(challenged.playersById).reduce((sum, player) => sum + player.hiddenConnections.length, 0);
     expect(total).toBe(15);
+  });
+
+  it('challenge: successful block proof does not permanently reveal the proven Connection', () => {
+    const declared = declare(turnState([card('POLICE_WALA'), card('BHAI')], [card('POLICE_WALA'), card('MUMMA')]), 'POLICE_WALA_RAID', toPlayerId('p2'));
+    const blocked = reducer(declared, {
+      type: 'BLOCK',
+      block: {
+        actionId: declared.pendingAction!.actionId,
+        blockerId: toPlayerId('p2'),
+        blockingRole: 'POLICE_WALA',
+        targetId: toPlayerId('p2'),
+        eligibleChallengers: [toPlayerId('p1')],
+        responses: {},
+      },
+    });
+    const challenged = challenge(blocked, toPlayerId('p1'));
+    expect(challenged.playersById[toPlayerId('p2')]!.revealedConnections).toEqual([]);
   });
 });

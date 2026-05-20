@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { reducer } from '../src/game/reducer';
 import { toPublicGameState, toPrivatePlayerState } from '../src/game/snapshots';
-import { card, declare, passChallenge, lobbyState, turnState } from './_helpers';
+import { card, declare, passChallenge, lobbyState, turnState, turnState3 } from './_helpers';
 import { toPlayerId } from '../src/game/utils';
 
 describe('snapshots', () => {
@@ -56,6 +56,13 @@ describe('snapshots', () => {
     const challenged = reducer(declared, { type: 'CHALLENGE', challengerId: toPlayerId('p2') });
     const privateState = toPrivatePlayerState(challenged, toPlayerId('p2'));
     expect(privateState.pendingChallenge?.kind).toBe('action');
+  });
+
+  it('snapshot: private state includes Use Setting prompt only for eligible blocker', () => {
+    const declared = declare(turnState3([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')]), 'RISHTEDAAR_HELP');
+    const publicState = toPublicGameState(declared);
+    expect(publicState.phase).toBe('BLOCK_WINDOW');
+    expect(publicState.pendingAction?.actionType).toBe('RISHTEDAAR_HELP');
   });
 
   it('snapshot: sequence number increases after accepted reducer events', () => {

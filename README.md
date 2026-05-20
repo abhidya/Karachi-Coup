@@ -53,7 +53,8 @@ Use the GitHub Actions workflow in `.github/workflows/deploy.yml` to build and p
 2. Share the room code or link.
 3. Players join with a display name.
 4. Host starts the game.
-5. Players take turns, bluff, call bakwaas, use setting, burn Connections, and try to be the last one standing.
+5. Host is the table authority only; the host should open a second tab or phone to play as a normal player.
+6. Players take turns, bluff, call bakwaas, use setting, burn Connections, and try to be the last one standing.
 
 ## Asset naming notes
 
@@ -67,3 +68,7 @@ The app keeps image filenames behind `src/game/assets.ts` so components use sema
 - TURN is not included in this MVP.
 - Reconnect is best-effort, not guaranteed.
 - Keep the host browser open during play.
+
+## Room code convention
+
+This MVP keeps the PeerJS room identifier direct and simple: host and clients both use the room code itself for room matching. The share link carries that same room code.

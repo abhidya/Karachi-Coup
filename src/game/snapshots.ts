@@ -47,8 +47,20 @@ export function toPrivatePlayerState(state: HostGameState, playerId: PlayerId): 
           : ['CHAI_PAISA', 'RISHTEDAAR_HELP', 'KIRAYA_COLLECTION', 'POLICE_WALA_RAID', 'BHAI_KA_SCENE', 'ZARDAAR_JUGAAD', 'FULL_BEIZZATI']
         : [],
     pendingAction: state.pendingAction?.actorId === playerId ? state.pendingAction : null,
-    pendingChallenge: state.pendingChallenge?.claimantId === playerId || state.pendingChallenge?.challengerId === playerId ? state.pendingChallenge : null,
-    pendingBlock: state.pendingBlock?.blockerId === playerId ? state.pendingBlock : null,
+    pendingChallenge:
+      state.pendingChallenge &&
+      (state.pendingChallenge.claimantId === playerId ||
+        state.pendingChallenge.challengerId === playerId ||
+        state.pendingChallenge.eligibleChallengers.includes(playerId))
+        ? state.pendingChallenge
+        : null,
+    pendingBlock:
+      state.pendingBlock &&
+      (state.pendingBlock.blockerId === playerId ||
+        state.pendingBlock.targetId === playerId ||
+        state.pendingBlock.eligibleChallengers.includes(playerId))
+        ? state.pendingBlock
+        : null,
     pendingBurn: state.pendingBurn?.playerId === playerId ? state.pendingBurn : null,
     pendingJugaad: state.pendingJugaad?.playerId === playerId ? state.pendingJugaad : null,
   };

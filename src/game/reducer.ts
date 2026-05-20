@@ -22,10 +22,11 @@ function logEntry(text: string) {
 }
 
 function bump(state: HostGameState, next: HostGameState, text: string): HostGameState {
+  const newEntries = next.log.slice(state.log.length);
   return {
     ...next,
-    seq: state.seq + 1,
-    log: [...state.log, logEntry(text)],
+    seq: state.seq + 1 + newEntries.length,
+    log: [...state.log, logEntry(text), ...newEntries],
   };
 }
 
@@ -92,7 +93,7 @@ function replaceClaimedCardAndDraw(state: HostGameState, claimantId: PlayerId, c
   const updatedPlayer: PlayerState = {
     ...player,
     hiddenConnections: replacement ? [...hiddenConnections, replacement] : hiddenConnections,
-    revealedConnections: [...player.revealedConnections, claimedRole],
+    revealedConnections: [...player.revealedConnections],
   };
 
   return replacePlayer(
@@ -493,10 +494,10 @@ export function reducer(state: HostGameState, event: GameEvent): HostGameState {
       return declareAction(state, event.action);
     case 'CHALLENGE':
       if (state.pendingChallenge?.kind === 'block') {
-        return resolveAfterBlockChallenge(state, event.challengerId);
+        return bump(state, resolveAfterBlockChallenge(state, event.challengerId), 'Call Bakwaas');
       }
       if (state.pendingChallenge?.kind === 'action') {
-        return resolveAfterActionChallenge(state, event.challengerId);
+        return bump(state, resolveAfterActionChallenge(state, event.challengerId), 'Call Bakwaas');
       }
       return state;
     case 'PASS_CHALLENGE':

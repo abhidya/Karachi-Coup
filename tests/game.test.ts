@@ -152,7 +152,7 @@ describe('Karachi Coup core', () => {
     const challenged = reducer(declared, { type: 'CHALLENGE', challengerId: toPlayerId('p2') });
     expect(challenged.pendingBurn?.playerId).toBe(toPlayerId('p2'));
     expect(challenged.playersById[toPlayerId('p1')]!.hiddenConnections).toHaveLength(2);
-    expect(challenged.playersById[toPlayerId('p1')]!.revealedConnections).toContain('MALIK_SAAB');
+    expect(challenged.playersById[toPlayerId('p1')]!.revealedConnections).toEqual([]);
     const burner = reducer(challenged, {
       type: 'CHOOSE_CONNECTION_TO_BURN',
       playerId: toPlayerId('p2'),
