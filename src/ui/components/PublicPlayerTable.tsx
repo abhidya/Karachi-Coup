@@ -2,6 +2,7 @@ import { Panel, Pill, Row, Stack } from '../../components/Ui';
 import { GAME_ASSETS } from '../../game/assets';
 import { labels } from '../../game/theme';
 import type { PlayerPublicState } from '../../game/types';
+import { ROLE_IMAGE_BY_ROLE } from '../imageAssets';
 
 type PublicPlayerTableProps = {
   currentScene: string;
@@ -23,7 +24,7 @@ export function PublicPlayerTable({ currentScene, players }: PublicPlayerTablePr
               className={player.isTurn ? 'player-list__row player-list__row--active' : 'player-list__row'}
               data-testid="public-player-row"
             >
-              <div>
+              <div className="player-list__identity">
                 <strong>{player.name}</strong>
                 <small>{player.id}</small>
               </div>
@@ -34,14 +35,21 @@ export function PublicPlayerTable({ currentScene, players }: PublicPlayerTablePr
                 <span className="rupee-chip" data-testid="player-rupees">
                   {player.rupees} Rupees
                 </span>
-                <span className="slot-row" data-testid="player-hidden-count">
+                <span className="slot-row slot-row--hidden" data-testid="player-hidden-count" aria-label={`${player.hiddenConnectionCount} hidden connections`}>
                   {Array.from({ length: player.hiddenConnectionCount }).map((_, index) => (
-                    <img key={`${player.id}-hidden-${index}`} src={GAME_ASSETS.slots.hidden} alt="Hidden connection" />
+                    <span key={`${player.id}-hidden-${index}`} className="card-stack card-stack--hidden" aria-hidden="true">
+                      <img className="card-stack__slot" src={GAME_ASSETS.slots.hidden} alt="" />
+                      <img className="card-stack__back" src={GAME_ASSETS.cards.back} alt="" />
+                    </span>
                   ))}
                 </span>
-                <span className="slot-row" data-testid="player-revealed-connections">
+                <span className="slot-row" data-testid="player-revealed-connections" aria-label={`${player.revealedConnections.length} revealed connections`}>
                   {player.revealedConnections.map((role, index) => (
-                    <img key={`${player.id}-revealed-${index}`} src={GAME_ASSETS.slots.revealed} alt={`${labels.roleTheme[role].label} revealed`} />
+                    <span key={`${player.id}-revealed-${index}`} className="card-stack card-stack--revealed">
+                      <img className="card-stack__slot" src={GAME_ASSETS.slots.revealed} alt="" />
+                      <img className="card-stack__art" src={ROLE_IMAGE_BY_ROLE[role]} alt={labels.roleTheme[role].label} />
+                      <img className="card-stack__burned" src={GAME_ASSETS.slots.burned} alt="" />
+                    </span>
                   ))}
                 </span>
                 {player.eliminated ? <img className="badge-icon" src={GAME_ASSETS.badges.eliminated} alt="Eliminated" /> : null}

@@ -44,3 +44,38 @@ export const labels = {
     GAME_OVER: 'Game Over',
   } satisfies Record<GamePhase, string>,
 } as const;
+
+export const rulesGuide = {
+  quickRules: [
+    '2 to 6 friends. Everyone starts with 2 hidden Connections and 2 Rupees.',
+    'If you lose your last Connection, you are out.',
+    'On your turn, pick a Scene. Other players may Call Bakwaas or Use Setting when the rules allow it.',
+    'If you reach 10 or more Rupees at the start of your turn, Full Beizzati is mandatory.',
+  ],
+  actionSummaries: [
+    { action: 'CHAI_PAISA', summary: 'Take 1 Rupee. No challenge. No block.' },
+    { action: 'RISHTEDAAR_HELP', summary: 'Take 2 Rupees. Malik Saab can block.' },
+    { action: 'KIRAYA_COLLECTION', summary: 'Claim Malik Saab, take 3 Rupees.' },
+    { action: 'POLICE_WALA_RAID', summary: 'Claim Police Wala, target a player, steal up to 2 Rupees.' },
+    { action: 'BHAI_KA_SCENE', summary: 'Claim Bhai, pay 3 Rupees, target burns a Connection.' },
+    { action: 'ZARDAAR_JUGAAD', summary: 'Claim Zardaar Chor, draw 2, return 2.' },
+    { action: 'FULL_BEIZZATI', summary: 'Pay 7 Rupees, target burns a Connection. No challenge or block.' },
+  ] as const,
+  challengeRules: [
+    'Calling Bakwaas challenges a claimed role.',
+    'If the claimant proves the role, the challenger burns a Connection and play continues.',
+    'If the claimant fails, the claimant burns a Connection and the action or block fails.',
+    'A proven Connection returns to the deck after showing it briefly.',
+  ],
+  blockRules: [
+    'Rishtedaar Help can be blocked by Malik Saab.',
+    'Police Wala Raid can be blocked by Police Wala or Zardaar Chor.',
+    'Bhai Ka Scene can be blocked by Mumma.',
+    'Full Beizzati, Chai Paisa, Kiraya Collection, and Zardaar Jugaad cannot be blocked.',
+  ],
+  peerRules: [
+    'Host-authoritative PeerJS. The host owns hidden state and validates every intent.',
+    'Join from another phone or tab by room code. Reconnect is best-effort.',
+    'This is for friends and local play, not ranked or competitive play.',
+  ],
+} as const;

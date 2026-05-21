@@ -2,12 +2,18 @@ const baseUrl = (import.meta as ImportMeta & { env: { BASE_URL: string } }).env.
 const asset = (file: string) => `${baseUrl}${file}`;
 
 export const GAME_ASSETS = {
+  cards: {
+    back: asset('connection-back.png'),
+  },
   roles: {
     malik: asset('malik-saab.png'),
     bhai: asset('bhai.png'),
     police: asset('police-wala.png'),
     zardaar: asset('zardarr-chor.png'),
     mumma: asset('mumma.png'),
+  },
+  lobby: {
+    hostHero: asset('host-lobby.png'),
   },
   actions: {
     income: asset('chai-paisa.png'),
@@ -29,6 +35,12 @@ export const GAME_ASSETS = {
     lobby: asset('host-lobby-bg.png'),
     table: asset('game-table-bg.png'),
     gameOver: asset('game-over-bg.png'),
+    darkTable: asset('seamless-dark-table.png'),
+    marketWall: asset('seamless-warm-market-wall.png'),
+  },
+  // Intentionally unused: this is Bhai poster art, not the game logo.
+  unused: {
+    untitledBhaiPoster: asset('Untitled.png'),
   },
   textures: {
     panel: asset('panel-texture.png'),

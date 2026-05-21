@@ -9,7 +9,7 @@ test('deployment: built page serves production app', async ({ page }) => {
 test('deployment: important public assets are reachable', async ({ page, request }) => {
   await page.goto('./');
   const base = new URL(page.url());
-  const assetPaths = ['malik-saab.png', 'game-table-bg.png', 'action-reference.png'];
+  const assetPaths = ['connection-back.png', 'host-lobby.png', 'seamless-dark-table.png', 'action-reference.png'];
 
   for (const path of assetPaths) {
     const response = await request.get(new URL(path, base).toString());

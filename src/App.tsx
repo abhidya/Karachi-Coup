@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Pill, Row } from './components/Ui';
+import { Pill } from './components/Ui';
 import { GAME_ASSETS } from './game/assets';
 import { GAME_THEME, labels } from './game/theme';
 import type {
@@ -17,6 +17,7 @@ import { HostLobbyScreen } from './ui/screens/HostLobbyScreen';
 import { JoinRoomScreen } from './ui/screens/JoinRoomScreen';
 import { LobbyScreen } from './ui/screens/LobbyScreen';
 import { GameScreen } from './ui/screens/GameScreen';
+import { RulesModal } from './ui/components/RulesModal';
 import { createPeerClient, type ClientNetworkSnapshot, type PeerClientHandle } from './network/peerClient';
 import { createPeerHost, type HostNetworkSnapshot, type PeerHostHandle } from './network/peerHost';
 import { readSessionStorage, sessionStorageKey, writeSessionStorage } from './network/storage';
@@ -247,6 +248,7 @@ export function App() {
   const [pendingActionType, setPendingActionType] = useState<ActionType | null>(null);
   const [pendingTargetId, setPendingTargetId] = useState('');
   const [jugaadReturnIds, setJugaadReturnIds] = useState<string[]>([]);
+  const [showRules, setShowRules] = useState(false);
 
   const hostHandleRef = usePeerHost(roomId || null, mode === 'host', setHostSnapshot);
   const clientHandleRef = usePeerClient(roomId || null, mode === 'client', displayName, setClientSnapshot);
@@ -304,6 +306,17 @@ export function App() {
   const canSeeBlockPrompt = Boolean(publicState?.phase === 'BLOCK_WINDOW' && eligibleBlockRoles.length);
   const activeBurnPrompt = privateState?.pendingBurn?.playerId === currentPlayerId ? privateState.pendingBurn : null;
   const activeJugaadPrompt = privateState?.pendingJugaad?.playerId === currentPlayerId ? privateState.pendingJugaad : null;
+  const promptKind: 'idle' | 'challenge' | 'block' | 'block-challenge' =
+    challengePrompt ? (publicState?.pendingChallenge?.kind === 'block' ? 'block-challenge' : 'challenge') : canSeeBlockPrompt ? 'block' : 'idle';
+  const promptLabel =
+    promptKind === 'challenge' && publicState?.pendingAction
+      ? `Challenge ${labels.actionLabels[publicState.pendingAction.actionType]} from ${turnOwner?.name ?? 'the active player'}`
+      : promptKind === 'block' && publicState?.pendingAction
+        ? `Use Setting against ${labels.actionLabels[publicState.pendingAction.actionType]}`
+        : promptKind === 'block-challenge' && publicState?.pendingBlock
+          ? `Challenge ${labels.roleTheme[publicState.pendingBlock.blockingRole].label}`
+          : undefined;
+  const forcedActionType = privateState?.availableActions.length === 1 ? privateState.availableActions[0] ?? null : null;
   const screenBackground =
     route === 'home'
       ? GAME_ASSETS.backgrounds.home
@@ -312,12 +325,6 @@ export function App() {
         : route === 'game'
           ? GAME_ASSETS.backgrounds.table
           : GAME_ASSETS.backgrounds.lobby;
-
-  useEffect(() => {
-    if (mode === 'client' && clientSnapshot?.connectedTo && (route === 'join' || route === 'home')) {
-      navigate('lobby', roomId);
-    }
-  }, [clientSnapshot?.connectedTo, mode, navigate, roomId, route]);
 
   useEffect(() => {
     if (isGamePhase && route !== 'game') {
@@ -458,37 +465,13 @@ export function App() {
           </div>
         </header>
 
-        <nav className="screen-switcher">
-          <Row gap="sm">
-            <Button variant={route === 'home' ? 'primary' : 'secondary'} onClick={() => navigate('home')}>
-              Home
-            </Button>
-            <Button variant={route === 'host' ? 'primary' : 'secondary'} onClick={() => navigate('host')}>
-              Host room
-            </Button>
-            <Button variant={route === 'join' ? 'primary' : 'secondary'} onClick={() => navigate('join')}>
-              Join room
-            </Button>
-            <Button variant={route === 'lobby' ? 'primary' : 'secondary'} onClick={() => navigate('lobby', roomId || undefined)}>
-              Lobby
-            </Button>
-            <Button variant={route === 'game' ? 'primary' : 'secondary'} onClick={() => navigate('game', roomId || undefined)}>
-              Game
-            </Button>
-          </Row>
-        </nav>
-
         {route === 'home' ? (
           <HomeScreen
             displayName={displayName}
             onDisplayNameChange={setDisplayName}
             onCreateRoom={createRoom}
             onJoinRoom={() => navigate('join')}
-            onGoHost={() => navigate('host')}
-            onGoJoin={() => navigate('join')}
-            onLeaveRoom={leaveRoom}
-            mode={mode}
-            roomId={roomId}
+            onOpenRules={() => setShowRules(true)}
           />
         ) : null}
 
@@ -498,9 +481,11 @@ export function App() {
             roomLink={roomLink}
             players={hostPlayers}
             hostStatus={hostStatus}
+            canStart={hostPlayers.length >= 2}
             onCopyRoomLink={copyRoomLink}
             onStartGame={startGame}
             onResetRoom={resetRoom}
+            onOpenRules={() => setShowRules(true)}
           />
         ) : null}
 
@@ -531,6 +516,7 @@ export function App() {
             onResetRoom={resetRoom}
             onRequestResync={requestResync}
             onLeaveRoom={leaveRoom}
+            onOpenRules={() => setShowRules(true)}
           />
         ) : null}
 
@@ -541,8 +527,6 @@ export function App() {
             publicPlayers={publicState?.players ?? []}
             activePlayerName={activePlayerName}
             privateState={privateState}
-            challengePrompt={challengePrompt}
-            canSeeBlockPrompt={canSeeBlockPrompt}
             eligibleBlockRoles={eligibleBlockRoles}
             activeBurnPrompt={activeBurnPrompt}
             activeJugaadPrompt={activeJugaadPrompt}
@@ -564,6 +548,10 @@ export function App() {
             onConfirmTarget={confirmTargetAction}
             onCancelTarget={cancelTargetPicker}
             onLeaveRoom={leaveRoom}
+            onOpenRules={() => setShowRules(true)}
+            promptKind={promptKind}
+            promptLabel={promptLabel}
+            forcedActionType={forcedActionType}
           />
         ) : null}
 
@@ -573,10 +561,12 @@ export function App() {
             players={publicState.players}
             winnerName={publicState.players.find((player) => player.id === publicState.winnerId)?.name ?? 'Unknown'}
             onNewGame={mode === 'host' ? resetRoom : undefined}
+            onBackHome={() => navigate('home')}
           />
         ) : null}
 
         {route === 'home' ? null : <StatusFooter mode={mode} onLeaveRoom={leaveRoom} />}
+        {showRules ? <RulesModal onClose={() => setShowRules(false)} /> : null}
       </div>
     </main>
   );

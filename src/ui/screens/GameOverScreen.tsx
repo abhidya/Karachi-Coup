@@ -7,12 +7,13 @@ type GameOverScreenProps = {
   players: PlayerPublicState[];
   winnerName: string;
   onNewGame?: () => void;
+  onBackHome?: () => void;
 };
 
-export function GameOverScreen({ winnerId, players, winnerName, onNewGame }: GameOverScreenProps) {
+export function GameOverScreen({ winnerId, players, winnerName, onNewGame, onBackHome }: GameOverScreenProps) {
   return (
     <Panel eyebrow="Game over" title="Winner declared" testId="game-over-screen">
-      <Stack gap="sm">
+      <Stack gap="md">
         <Row>
           <img className="badge-icon badge-icon--large" src={GAME_ASSETS.badges.winner} alt="Winner" />
           <div>
@@ -24,7 +25,7 @@ export function GameOverScreen({ winnerId, players, winnerName, onNewGame }: Gam
         <ul className="player-list">
           {players.map((player) => (
             <li key={player.id} className="player-list__row">
-              <div>
+              <div className="player-list__identity">
                 <strong>{player.name}</strong>
                 <small>{player.eliminated ? 'Eliminated' : 'Alive'}</small>
               </div>
@@ -37,11 +38,14 @@ export function GameOverScreen({ winnerId, players, winnerName, onNewGame }: Gam
             </li>
           ))}
         </ul>
-        {onNewGame ? (
-          <div className="panel__footer">
-            <Button onClick={onNewGame}>New game</Button>
-          </div>
-        ) : null}
+        <Row>
+          {onNewGame ? <Button onClick={onNewGame}>New game</Button> : null}
+          {onBackHome ? (
+            <Button variant="secondary" onClick={onBackHome}>
+              Back home
+            </Button>
+          ) : null}
+        </Row>
       </Stack>
     </Panel>
   );

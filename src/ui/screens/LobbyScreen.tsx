@@ -1,4 +1,5 @@
 import { Button, Panel, Pill, Row, Stack } from '../../components/Ui';
+import { GAME_ASSETS } from '../../game/assets';
 import type { HostLobbyPlayerView } from '../../game/types';
 
 type LobbyScreenProps = {
@@ -13,9 +14,23 @@ type LobbyScreenProps = {
   onResetRoom: () => void;
   onRequestResync: () => void;
   onLeaveRoom: () => void;
+  onOpenRules: () => void;
 };
 
-export function LobbyScreen({ roomCode, roomLink, currentScene, players, phaseLabel, turnOwnerName, mode, onStartGame, onResetRoom, onRequestResync, onLeaveRoom }: LobbyScreenProps) {
+export function LobbyScreen({
+  roomCode,
+  roomLink,
+  currentScene,
+  players,
+  phaseLabel,
+  turnOwnerName,
+  mode,
+  onStartGame,
+  onResetRoom,
+  onRequestResync,
+  onLeaveRoom,
+  onOpenRules,
+}: LobbyScreenProps) {
   return (
     <Stack gap="lg">
       <section className="hero-grid">
@@ -26,19 +41,33 @@ export function LobbyScreen({ roomCode, roomLink, currentScene, players, phaseLa
               <Pill tone="neutral">Turn {turnOwnerName || 'Waiting'}</Pill>
               <Pill tone="neutral">{phaseLabel}</Pill>
             </Row>
-            <p>Scene: <strong>{currentScene || 'Waiting for sync'}</strong></p>
-            <p>Room link: <strong>{roomLink || 'Create or join a room first'}</strong></p>
+            <p className="current-scene-banner">
+              <img className="badge-icon" src={GAME_ASSETS.badges.currentScene} alt="Current scene" />
+              <span data-testid="current-scene">{currentScene || 'Waiting for sync'}</span>
+            </p>
+            <p className="mono" data-testid="room-link">
+              {roomLink || 'Create or join a room first'}
+            </p>
             <Row>
+              <Button variant="ghost" onClick={onOpenRules}>
+                Quick rules
+              </Button>
               {mode === 'host' ? (
                 <>
                   <Button onClick={onStartGame}>Start game</Button>
-                  <Button variant="secondary" onClick={onResetRoom}>Rebuild lobby</Button>
+                  <Button variant="secondary" onClick={onResetRoom}>
+                    Reset room
+                  </Button>
                 </>
               ) : null}
               {mode === 'client' ? (
                 <>
-                  <Button onClick={onRequestResync}>Request resync</Button>
-                  <Button variant="secondary" onClick={onLeaveRoom}>Leave room</Button>
+                  <Button onClick={onRequestResync} data-testid="request-resync-button">
+                    Request resync
+                  </Button>
+                  <Button variant="secondary" onClick={onLeaveRoom} data-testid="leave-room-button">
+                    Leave room
+                  </Button>
                 </>
               ) : null}
             </Row>
@@ -49,7 +78,7 @@ export function LobbyScreen({ roomCode, roomLink, currentScene, players, phaseLa
         <ul className="player-list">
           {players.map((player) => (
             <li key={player.playerId} className="player-list__row">
-              <div>
+              <div className="player-list__identity">
                 <strong>{player.name}</strong>
                 <small>{player.playerId}</small>
               </div>

@@ -1,23 +1,8 @@
 import { Panel, Pill, Row, Stack } from '../../components/Ui';
-import { GAME_ASSETS } from '../../game/assets';
 import { labels } from '../../game/theme';
 import type { ActionType, ConnectionCard, PendingBurn, PendingJugaad, PlayerId } from '../../game/types';
 import { ConnectionCard as Card } from './ConnectionCard';
-
-function roleAsset(role: ConnectionCard['role']) {
-  switch (role) {
-    case 'MALIK_SAAB':
-      return GAME_ASSETS.roles.malik;
-    case 'BHAI':
-      return GAME_ASSETS.roles.bhai;
-    case 'POLICE_WALA':
-      return GAME_ASSETS.roles.police;
-    case 'ZARDAAR_CHOR':
-      return GAME_ASSETS.roles.zardaar;
-    case 'MUMMA':
-      return GAME_ASSETS.roles.mumma;
-  }
-}
+import { ROLE_IMAGE_BY_ROLE } from '../imageAssets';
 
 type PrivateHandProps = {
   playerId: PlayerId;
@@ -41,7 +26,7 @@ export function PrivateHand({
   pendingJugaad,
 }: PrivateHandProps) {
   return (
-    <Panel eyebrow="Private" title="Your snapshot" testId="private-panel">
+    <Panel eyebrow="Private" title="Your Connections" testId="private-panel">
       <Stack gap="sm">
         <Row>
           <Pill tone="neutral" data-testid="private-player-id">
@@ -62,7 +47,7 @@ export function PrivateHand({
           {hiddenConnections.map((card) => (
             <Card
               key={card.id}
-              src={roleAsset(card.role)}
+              src={ROLE_IMAGE_BY_ROLE[card.role]}
               title={labels.roleTheme[card.role].label}
               dataTestId="private-connection-card"
             />

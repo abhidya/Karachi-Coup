@@ -1,24 +1,25 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('Karachi Coup shell', () => {
-  test('home page shows the game title and primary actions', async ({ page }) => {
+  test('visual: home screen shows polished create/join/how-to-play choices', async ({ page }) => {
     await page.goto('./');
 
     await expect(page.getByTestId('home-title')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Bluff. Setting. Rupees. Full Beizzati.' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Host a room' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Join a room' })).toBeVisible();
+    await expect(page.getByTestId('create-room-button')).toBeVisible();
+    await expect(page.getByTestId('join-room-button')).toBeVisible();
+    await expect(page.getByTestId('open-rules-button')).toBeVisible();
   });
 
-  test('host flow opens the lobby shell and shows a room code', async ({ page }) => {
+  test('peer room: host creates room and shows room code', async ({ page }) => {
     await page.goto('./');
     await page.getByTestId('create-room-button').click();
 
     await expect(page).toHaveURL(/#\/(host|lobby)\?room=/);
-    await expect(page.getByText('Room link:')).toBeVisible();
+    await expect(page.getByTestId('room-link')).toBeVisible();
   });
 
-  test('join flow accepts a room code and opens the lobby shell', async ({ page }) => {
+  test('peer room: two players join host room', async ({ page }) => {
     await page.goto('./#/join');
 
     await page.getByTestId('join-code-input').fill('abc12');

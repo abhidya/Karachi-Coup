@@ -154,6 +154,44 @@ input {
   gap: 16px;
 }
 
+.home-hero {
+  align-items: start;
+}
+
+.home-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-tagline {
+  margin: 0;
+  font-size: 1.06rem;
+  font-weight: 700;
+}
+
+.home-banner {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.home-banner strong {
+  font-size: 0.92rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.home-banner p {
+  margin: 0;
+  color: #fff2d9;
+}
+
 .panel {
   border: 1px solid var(--border);
   border-radius: 24px;
@@ -403,6 +441,15 @@ input {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.player-list__row--lobby {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.player-list__identity {
+  display: grid;
+  gap: 2px;
+}
+
 .player-list__row--active {
   border-color: var(--border-strong);
   background: rgba(103, 199, 255, 0.1);
@@ -424,14 +471,83 @@ input {
   color: var(--muted);
 }
 
+.room-code-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 209, 122, 0.34);
+  background:
+    linear-gradient(135deg, rgba(255, 209, 122, 0.14), transparent 45%),
+    rgba(34, 19, 8, 0.74);
+}
+
+.room-code-card strong {
+  font-size: clamp(1.7rem, 7vw, 3rem);
+  letter-spacing: 0.18em;
+}
+
+.lobby-hero {
+  width: 100%;
+  max-height: 290px;
+  object-fit: cover;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.current-scene-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.scene-banner {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 30%),
+    rgba(8, 15, 27, 0.94);
+}
+
+.scene-banner h2 {
+  margin: 0;
+  font-size: clamp(1.2rem, 3vw, 1.8rem);
+}
+
+.scene-banner__actions {
+  margin-left: auto;
+}
+
+.table-surface {
+  padding: 4px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-size: cover;
+  background-position: center;
+  box-shadow: var(--shadow);
+}
+
+.table-surface > .panel {
+  background: transparent;
+  box-shadow: none;
+}
+
+.table-surface--log {
+  background:
+    linear-gradient(180deg, rgba(11, 17, 26, 0.82), rgba(10, 14, 22, 0.92)),
+    url('/panel-texture.png');
+  background-size: cover;
+}
+
 .art-card {
   display: grid;
   gap: 8px;
-  min-width: 120px;
-  padding: 10px;
+  min-width: 130px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.05);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+    rgba(255, 255, 255, 0.03);
   color: var(--text);
   cursor: pointer;
   transition:
@@ -470,6 +586,12 @@ input {
   font-size: 0.82rem;
 }
 
+.button-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+}
+
 .hand-grid,
 .target-grid {
   display: grid;
@@ -477,10 +599,59 @@ input {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
+.card-stack {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 58px;
+}
+
+.card-stack__slot,
+.card-stack__back,
+.card-stack__art,
+.card-stack__burned {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.card-stack__back {
+  inset: 5px 4px 5px 5px;
+  width: calc(100% - 9px);
+  height: calc(100% - 10px);
+  border-radius: 6px;
+}
+
+.card-stack__art {
+  inset: 7px 6px 7px 6px;
+  width: calc(100% - 12px);
+  height: calc(100% - 14px);
+  border-radius: 5px;
+}
+
+.card-stack__burned {
+  opacity: 0.88;
+  mix-blend-mode: screen;
+}
+
+.card-stack--revealed {
+  width: 44px;
+  height: 64px;
+}
+
+.card-stack--hidden {
+  width: 42px;
+  height: 58px;
+}
+
 .slot-row {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
+  align-items: center;
 }
 
 .slot-row img,
@@ -547,6 +718,36 @@ input {
 
 .modal__body {
   padding: 18px;
+}
+
+.rules-art {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.rules-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.rules-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.rules-card__art {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 12px;
 }
 
 @media (min-width: 760px) {

@@ -2,12 +2,29 @@ import { describe, expect, it } from 'vitest';
 import { GAME_ASSETS } from '../src/game/assets';
 
 describe('assets', () => {
+  it('assets: every registered asset url is rooted under the Vite base path', () => {
+    for (const value of Object.values(GAME_ASSETS)) {
+      for (const nested of Object.values(value as Record<string, unknown>)) {
+        if (typeof nested === 'string') {
+          expect(nested.startsWith(import.meta.env.BASE_URL)).toBe(true);
+        }
+      }
+    }
+  });
+
   it('assets: every role has a mapped image path', () => {
     expect(GAME_ASSETS.roles.malik).toContain('malik-saab.png');
     expect(GAME_ASSETS.roles.bhai).toContain('bhai.png');
     expect(GAME_ASSETS.roles.police).toContain('police-wala.png');
     expect(GAME_ASSETS.roles.zardaar).toContain('zardarr-chor.png');
     expect(GAME_ASSETS.roles.mumma).toContain('mumma.png');
+  });
+
+  it('assets: game art pack exposes a face-down card back and lobby hero image', () => {
+    expect(GAME_ASSETS.cards.back).toContain('connection-back.png');
+    expect(GAME_ASSETS.lobby.hostHero).toContain('host-lobby.png');
+    expect(GAME_ASSETS.backgrounds.darkTable).toContain('seamless-dark-table.png');
+    expect(GAME_ASSETS.backgrounds.marketWall).toContain('seamless-warm-market-wall.png');
   });
 
   it('assets: every action has a mapped image path', () => {
@@ -41,8 +58,7 @@ describe('assets', () => {
     expect(GAME_ASSETS.rules.actionReference).toContain('action-reference.png');
   });
 
-  it('assets: semantic asset keys do not expose typo filenames outside assets.ts', () => {
-    const flattened = JSON.stringify(GAME_ASSETS);
-    expect(flattened).not.toContain('Untitled.png');
+  it('assets: Untitled.png is documented as intentionally unused', () => {
+    expect(GAME_ASSETS.unused.untitledBhaiPoster).toContain('Untitled.png');
   });
 });

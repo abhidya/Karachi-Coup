@@ -1,24 +1,10 @@
-import { Stack } from '../../components/Ui';
-import { GAME_ASSETS } from '../../game/assets';
+import { useState } from 'react';
+import { Button, Row, Stack } from '../../components/Ui';
 import { labels } from '../../game/theme';
 import type { ConnectionCard } from '../../game/types';
 import { ConnectionCard as Card } from './ConnectionCard';
 import { Modal } from '../modals';
-
-function roleAsset(role: ConnectionCard['role']) {
-  switch (role) {
-    case 'MALIK_SAAB':
-      return GAME_ASSETS.roles.malik;
-    case 'BHAI':
-      return GAME_ASSETS.roles.bhai;
-    case 'POLICE_WALA':
-      return GAME_ASSETS.roles.police;
-    case 'ZARDAAR_CHOR':
-      return GAME_ASSETS.roles.zardaar;
-    case 'MUMMA':
-      return GAME_ASSETS.roles.mumma;
-  }
-}
+import { ROLE_IMAGE_BY_ROLE } from '../imageAssets';
 
 type BurnConnectionModalProps = {
   hiddenConnections: ConnectionCard[];
@@ -26,23 +12,32 @@ type BurnConnectionModalProps = {
 };
 
 export function BurnConnectionModal({ hiddenConnections, onBurn }: BurnConnectionModalProps) {
+  const [selectedId, setSelectedId] = useState<string>('');
+
   return (
-    <Modal title="Burn Connection" subtitle="Choose one unrevealed connection" onClose={() => undefined}>
+    <Modal title="Burn one Connection" subtitle="Choose one hidden Connection to reveal" onClose={() => undefined}>
       <Stack gap="sm">
-        <p className="muted">Choose one of your own hidden Connections to burn.</p>
+        <p className="muted">Your setting took a hit. Pick one unrevealed Connection, then confirm.</p>
         <div className="hand-grid" data-testid="burn-modal">
           {hiddenConnections.map((card) => (
             <Card
               key={card.id}
-              src={roleAsset(card.role)}
+              src={ROLE_IMAGE_BY_ROLE[card.role]}
               title={labels.roleTheme[card.role].label}
-              subtitle="Burn it"
-              tone="danger"
-              onClick={() => onBurn(card.id)}
+              subtitle={selectedId === card.id ? 'Selected to burn' : 'Tap to select'}
+              tone={selectedId === card.id ? 'danger' : 'neutral'}
+              active={selectedId === card.id}
+              onClick={() => setSelectedId(card.id)}
               dataTestId="burn-connection-option"
             />
           ))}
         </div>
+        <Row>
+          <Button variant="danger" disabled={!selectedId} onClick={() => onBurn(selectedId)}>
+            Confirm burn
+          </Button>
+          <p className="muted">Burning is permanent.</p>
+        </Row>
       </Stack>
     </Modal>
   );
