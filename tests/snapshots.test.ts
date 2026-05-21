@@ -25,6 +25,13 @@ describe('snapshots', () => {
     expect(publicState.players.every((player) => player.revealedConnections.length === 0)).toBe(true);
   });
 
+  it('snapshot: public state does not show a successfully proven card as burned influence', () => {
+    const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'KIRAYA_COLLECTION');
+    const challenged = reducer(declared, { type: 'CHALLENGE', challengerId: toPlayerId('p2') });
+    const publicState = toPublicGameState(challenged);
+    expect(publicState.players[0]?.revealedConnections).toEqual([]);
+  });
+
   it('snapshot: private state for Player 1 includes only Player 1 hidden Connections', () => {
     const state = reducer(lobbyState(2), { type: 'START_GAME' });
     const privateState = toPrivatePlayerState(state, toPlayerId('p1'));

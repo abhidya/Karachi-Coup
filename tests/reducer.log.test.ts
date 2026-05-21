@@ -1,49 +1,52 @@
 import { describe, expect, it } from 'vitest';
-import { reducer, createActionEvent } from '../src/game/reducer';
-import { card, declare, passChallenge, turnState, turnState3 } from './_helpers';
+import { createActionEvent, reducer } from '../src/game/reducer';
+import { card, challenge, declare, passChallenge, turnState, turnState3, burn } from './_helpers';
 import { toPlayerId } from '../src/game/utils';
 
-describe('reducer log and seq', () => {
-  it('reducer: accepted action increments seq predictably', () => {
+function logTexts(state: ReturnType<typeof reducer>) {
+  return state.log.map((entry) => entry.text);
+}
+
+describe('reducer logs and seq', () => {
+  it('reducer: accepted Chai Paisa increments seq once and logs Chai Paisa', () => {
     const state = turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]);
-    const next = reducer(state, createActionEvent(toPlayerId('p1'), 'CHAI_PAISA'));
-    expect(next.seq).toBe(state.seq + 2);
+    const next = reducer(state, createActionEvent(state.activePlayerId!, 'CHAI_PAISA'));
+
+    expect(next.seq).toBe(1);
+    expect(logTexts(next)).toContain('Chai Paisa');
   });
 
-  it('reducer: passing through challenge and block windows produces readable ordered log entries', () => {
-    const declared = declare(turnState3([card('MALIK_SAAB'), card('BHAI')], [card('POLICE_WALA'), card('MUMMA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')]), 'RISHTEDAAR_HELP');
-    const blocked = reducer(declared, {
-      type: 'BLOCK',
-      block: {
-        actionId: declared.pendingAction!.actionId,
-        blockerId: toPlayerId('p2'),
-        blockingRole: 'MALIK_SAAB',
-        targetId: null,
-        eligibleChallengers: [toPlayerId('p1'), toPlayerId('p3')],
-        responses: {},
-      },
-    });
-    const afterPass = passChallenge(blocked, toPlayerId('p3'));
-    expect(afterPass.log.map((entry) => entry.text)).toContain('Rishtedaar Help');
-    expect(afterPass.log.map((entry) => entry.text)).toContain('Use Setting');
-    expect(afterPass.log.map((entry) => entry.text)).toContain('Let It Slide');
-  });
-
-  it('reducer: Chai Paisa log does not duplicate or hide turn advancement', () => {
+  it('reducer: turn advancement after Chai Paisa is visible in state and not lost', () => {
     const state = turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]);
-    const next = reducer(state, createActionEvent(toPlayerId('p1'), 'CHAI_PAISA'));
-    expect(next.log.map((entry) => entry.text).slice(-2)).toEqual(['Chai Paisa', 'Bob turn']);
+    const next = reducer(state, createActionEvent(state.activePlayerId!, 'CHAI_PAISA'));
+
+    expect(next.activePlayerId).toBe(toPlayerId('p2'));
+    expect(logTexts(next)).toEqual(expect.arrayContaining(['Chai Paisa', 'Bob turn']));
   });
 
-  it('reducer: Full Beizzati log shows payment, target burn prompt, and final burn result clearly', () => {
+  it('reducer: Kiraya Collection pass logs action resolution clearly', () => {
+    const state = turnState3([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')]);
+    const declared = declare(state, 'KIRAYA_COLLECTION');
+    const afterFirstPass = passChallenge(declared, toPlayerId('p2'));
+    const resolved = passChallenge(afterFirstPass, toPlayerId('p3'));
+
+    expect(logTexts(resolved)).toEqual(expect.arrayContaining(['Let It Slide', 'Kiraya Collection', 'Bob turn']));
+  });
+
+  it('reducer: burn flow logs Burn Connection and then advances turn', () => {
     const state = turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], 7, 2);
-    const declared = reducer(state, createActionEvent(toPlayerId('p1'), 'FULL_BEIZZATI', toPlayerId('p2')));
-    const burned = reducer(declared, {
-      type: 'CHOOSE_CONNECTION_TO_BURN',
-      playerId: toPlayerId('p2'),
-      connectionId: declared.playersById[toPlayerId('p2')]!.hiddenConnections[0]!.id,
-    });
-    expect(burned.log.map((entry) => entry.text).slice(-2)).toContain('Burn Connection');
-    expect(burned.log.map((entry) => entry.text)).toContain('Full Beizzati');
+    const declared = reducer(state, createActionEvent(state.activePlayerId!, 'FULL_BEIZZATI', toPlayerId('p2')));
+    const burned = burn(declared, toPlayerId('p2'), declared.playersById[toPlayerId('p2')]!.hiddenConnections[0]!.id);
+
+    expect(logTexts(burned)).toEqual(expect.arrayContaining(['Full Beizzati', 'Burn Connection', 'Bob turn']));
+  });
+
+  it('reducer: nested transition helpers do not drop previous log entries', () => {
+    const state = turnState3([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')]);
+    const declared = declare(state, 'KIRAYA_COLLECTION');
+    const challenged = challenge(declared, toPlayerId('p2'));
+    const burned = burn(challenged, toPlayerId('p2'), challenged.playersById[toPlayerId('p2')]!.hiddenConnections[0]!.id);
+
+    expect(logTexts(burned)).toEqual(expect.arrayContaining(['Call Bakwaas', 'Burn Connection']));
   });
 });

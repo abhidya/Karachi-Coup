@@ -22,11 +22,18 @@ function logEntry(text: string) {
 }
 
 function bump(state: HostGameState, next: HostGameState, text: string): HostGameState {
-  const newEntries = next.log.slice(state.log.length);
+  const entries = [text];
+  if (state.phase !== 'GAME_OVER' && next.phase === 'GAME_OVER') {
+    const winnerId = next.winnerId ?? firstAlivePlayerId(next);
+    entries.push(`Winner: ${winnerId ? next.playersById[winnerId]?.name ?? 'Unknown' : 'None'}`);
+  } else if (state.activePlayerId !== next.activePlayerId && next.activePlayerId) {
+    entries.push(`${next.playersById[next.activePlayerId]?.name ?? 'Player'} turn`);
+  }
+
   return {
     ...next,
-    seq: state.seq + 1 + newEntries.length,
-    log: [...state.log, logEntry(text), ...newEntries],
+    seq: state.seq + 1,
+    log: [...state.log, ...entries.map(logEntry)],
   };
 }
 
@@ -57,23 +64,19 @@ function advanceTurn(state: HostGameState): HostGameState {
   const alive = livingCount(state);
   if (alive <= 1) {
     const winnerId = firstAlivePlayerId(state);
-    return bump(state, gameOverState(state, winnerId), `Winner: ${winnerId ? state.playersById[winnerId]?.name ?? 'Unknown' : 'None'}`);
+    return gameOverState(state, winnerId);
   }
 
   const nextId = state.activePlayerId ? nextLivingPlayerId(state, state.activePlayerId) : firstAlivePlayerId(state);
   if (!nextId) {
-    return bump(state, gameOverState(state, firstAlivePlayerId(state)), 'Game over');
+    return gameOverState(state, firstAlivePlayerId(state));
   }
 
-  return bump(
-    state,
-    {
-      ...clearPrompts(state),
-      phase: 'TURN_START',
-      activePlayerId: nextId,
-    },
-    `${state.playersById[nextId]?.name ?? 'Player'} turn`,
-  );
+  return {
+    ...clearPrompts(state),
+    phase: 'TURN_START',
+    activePlayerId: nextId,
+  };
 }
 
 function eligibleChallengers(state: HostGameState, excluded: PlayerId[]): PlayerId[] {
@@ -93,7 +96,6 @@ function replaceClaimedCardAndDraw(state: HostGameState, claimantId: PlayerId, c
   const updatedPlayer: PlayerState = {
     ...player,
     hiddenConnections: replacement ? [...hiddenConnections, replacement] : hiddenConnections,
-    revealedConnections: [...player.revealedConnections],
   };
 
   return replacePlayer(
@@ -354,7 +356,7 @@ function passChallenge(state: HostGameState, playerId: PlayerId): HostGameState 
 
   if (challenge.kind === 'action') {
     if (pending.actionType === 'KIRAYA_COLLECTION') {
-      return advanceTurn(bump(state, { ...applyRupees(state, pending.actorId, 3), pendingChallenge: null }, 'Kiraya Collection'));
+      return bump(state, advanceTurn({ ...applyRupees(state, pending.actorId, 3), pendingChallenge: null }), 'Kiraya Collection');
     }
     if (pending.actionType === 'ZARDAAR_JUGAAD') {
       const drawn = drawCards(state, 2);
@@ -373,14 +375,14 @@ function passChallenge(state: HostGameState, playerId: PlayerId): HostGameState 
     return bump(state, { ...state, phase: 'BLOCK_WINDOW', pendingChallenge: null }, 'Let It Slide');
   }
 
-  return resolveBlockStand(bump(state, { ...state, pendingChallenge: null }, 'Let It Slide'));
+  return bump(state, resolveBlockStand({ ...state, pendingChallenge: null }), 'Let It Slide');
 }
 
 function passBlock(state: HostGameState, _playerId: PlayerId): HostGameState {
   if (state.phase !== 'BLOCK_WINDOW') return state;
   const pending = state.pendingAction;
   if (!pending) return state;
-  return resolveUnblockedAction(bump(state, { ...state, pendingChallenge: null, pendingBlock: null }, 'Let It Slide'));
+  return bump(state, resolveUnblockedAction({ ...state, pendingChallenge: null, pendingBlock: null }), 'Let It Slide');
 }
 
 function blockAction(state: HostGameState, block: { actionId: string; blockerId: PlayerId; blockingRole: Role; targetId: PlayerId | null }): HostGameState {
@@ -435,7 +437,7 @@ function chooseBurn(state: HostGameState, playerId: PlayerId, connectionId: stri
     return bump(state, resolveAfterFailedBlockProof(cleared), 'Burn Connection');
   }
   if (pendingBurn.continueTo === 'turn_end') {
-    return advanceTurn(bump(state, { ...cleared, pendingAction: null, pendingBlock: null }, 'Burn Connection'));
+    return bump(state, advanceTurn({ ...cleared, pendingAction: null, pendingBlock: null }), 'Burn Connection');
   }
   return bump(state, gameOverState(cleared, firstAlivePlayerId(cleared)), 'Burn Connection');
 }
@@ -509,7 +511,10 @@ export function reducer(state: HostGameState, event: GameEvent): HostGameState {
     case 'CHOOSE_CONNECTION_TO_BURN':
       return chooseBurn(state, event.playerId, event.connectionId);
     case 'JUGAAD_RETURN':
-      return resolveJugaadReturn(state, event.playerId, event.returnedConnectionIds);
+      {
+        const next = resolveJugaadReturn(state, event.playerId, event.returnedConnectionIds);
+        return next === state ? state : bump(state, next, 'Zardaar Jugaad');
+      }
     case 'REQUEST_RESYNC':
       return requestResync(state);
     default:

@@ -1,15 +1,17 @@
-import type { HTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
 
 type PanelProps = {
   title?: ReactNode;
   eyebrow?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  className?: string;
+  testId?: string;
 };
 
-export function Panel({ title, eyebrow, children, footer }: PanelProps) {
+export function Panel({ title, eyebrow, children, footer, className = '', testId }: PanelProps) {
   return (
-    <section className="panel">
+    <section className={`panel ${className}`.trim()} data-testid={testId}>
       {(eyebrow || title) && (
         <header className="panel__header">
           {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
@@ -28,7 +30,7 @@ type ButtonProps = {
   type?: 'button' | 'submit' | 'reset';
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   disabled?: boolean;
-};
+} & ButtonHTMLAttributes<HTMLButtonElement>;
 
 export function Button({
   children,
@@ -36,9 +38,11 @@ export function Button({
   type = 'button',
   variant = 'primary',
   disabled,
+  className = '',
+  ...props
 }: ButtonProps) {
   return (
-    <button className={`button button--${variant}`} type={type} onClick={onClick} disabled={disabled}>
+    <button className={`button button--${variant} ${className}`.trim()} type={type} onClick={onClick} disabled={disabled} {...props}>
       {children}
     </button>
   );
@@ -50,13 +54,26 @@ type FieldProps = {
   onChange: (value: string) => void;
   placeholder?: string;
   type?: string;
-  inputMode?: HTMLAttributes<HTMLInputElement>['inputMode'];
+  inputMode?: InputHTMLAttributes<HTMLInputElement>['inputMode'];
   hint?: string;
+  inputTestId?: string;
+  className?: string;
 };
 
-export function Field({ label, value, onChange, placeholder, type = 'text', inputMode, hint }: FieldProps) {
+export function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+  inputMode,
+  hint,
+  inputTestId,
+  className = '',
+  ...props
+}: FieldProps) {
   return (
-    <label className="field">
+    <label className={`field ${className}`.trim()} {...props}>
       <span className="field__label">{label}</span>
       <input
         className="field__input"
@@ -65,6 +82,7 @@ export function Field({ label, value, onChange, placeholder, type = 'text', inpu
         placeholder={placeholder}
         inputMode={inputMode}
         onChange={(event) => onChange(event.target.value)}
+        data-testid={inputTestId}
       />
       {hint ? <span className="field__hint">{hint}</span> : null}
     </label>

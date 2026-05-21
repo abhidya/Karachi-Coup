@@ -6,5 +6,7 @@ export default defineConfig(({ mode }) => ({
   base: mode === 'production' ? '/Karachi-Coup/' : '/',
   test: {
     environment: 'jsdom',
+    include: ['tests/**/*.test.ts'],
+    exclude: ['tests/e2e/**', 'node_modules/**'],
   },
 }));

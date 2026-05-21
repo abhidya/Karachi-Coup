@@ -29,6 +29,17 @@ npm run dev
 npm test
 ```
 
+## End-to-end tests
+
+```bash
+npm run test:e2e
+npm run test:e2e:headed
+npm run test:e2e:ui
+npm run test:e2e:github
+```
+
+The E2E suite runs against local Vite preview by default. The `test:e2e:github` script points at the deployed GitHub Pages URL.
+
 ## Build
 
 ```bash
@@ -47,6 +58,10 @@ The Vite base path is set for `/Karachi-Coup/`.
 
 Use the GitHub Actions workflow in `.github/workflows/deploy.yml` to build and publish `dist/` to GitHub Pages.
 
+GitHub Pages Source should be set to **GitHub Actions**. The generated `dist/` folder is uploaded as the Pages artifact and should not be committed to the repo.
+
+If the deployed URL is blank or stale, check the Actions logs and confirm `dist/index.html` was created successfully.
+
 ## How to play
 
 1. Host opens the app and creates a room.
@@ -60,6 +75,8 @@ Use the GitHub Actions workflow in `.github/workflows/deploy.yml` to build and p
 
 The app keeps image filenames behind `src/game/assets.ts` so components use semantic keys instead of repeated raw filenames.
 
+If you need to add or rename public art, update `src/game/assets.ts` instead of scattering raw filenames through components.
+
 ## PeerJS limitations
 
 - PeerJS signaling is external.
@@ -72,3 +89,22 @@ The app keeps image filenames behind `src/game/assets.ts` so components use sema
 ## Room code convention
 
 This MVP keeps the PeerJS room identifier direct and simple: host and clients both use the room code itself for room matching. The share link carries that same room code.
+
+## Local workflow
+
+```bash
+npm install
+npm run dev
+npm test
+npm run build
+npm run test:e2e
+```
+
+## Important limitations
+
+- PeerJS signaling is external.
+- The host is authoritative and can technically cheat.
+- NAT/firewall/TURN issues can block connections.
+- Reconnect is best-effort.
+- Keep the host browser open.
+- This is for friends/local play, not ranked or gambling play.

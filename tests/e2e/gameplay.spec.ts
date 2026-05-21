@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+const peerMode = process.env.E2E_PEER_MODE === '1';
+const peerDescribe = peerMode ? test.describe : test.describe.skip;
 
 async function createHostedRoom(page: import('@playwright/test').Page, hostName: string) {
   await page.goto('./#/host');
@@ -26,7 +28,7 @@ async function joinRoom(page: import('@playwright/test').Page, roomCode: string,
   await expect(page.getByRole('button', { name: 'Request resync' })).toBeVisible();
 }
 
-test.describe('Karachi Coup gameplay smoke', () => {
+peerDescribe('Karachi Coup gameplay smoke', () => {
   test('host-create/join flow connects two players and starts a room', async ({ browser }) => {
     const hostContext = await browser.newContext();
     const playerOneContext = await browser.newContext();

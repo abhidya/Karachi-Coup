@@ -37,6 +37,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Verify dist
+        run: |
+          test -d dist
+          test -f dist/index.html
+          find dist -maxdepth 2 -type f | sort | head -100
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
