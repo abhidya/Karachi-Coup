@@ -56,7 +56,7 @@ export function HostLobbyScreen({
                 {hostStatus}
               </Pill>
             </Row>
-            <p className="muted">Host device must stay open. Players join from another phone or tab.</p>
+            <p className="muted">You are Player 1 and the room host. Keep this device open.</p>
             <Row>
               <Button onClick={onStartGame} disabled={!canStart} data-testid="start-game-button">
                 Start game

@@ -1,7 +1,7 @@
 import { Button, Panel, Row, Stack } from '../../components/Ui';
 import { GAME_ASSETS } from '../../game/assets';
 import { labels } from '../../game/theme';
-import type { ActionType, GameLogEntry, PendingBurn, PendingJugaad, PlayerPublicState, PrivatePlayerState, Role } from '../../game/types';
+import type { ActionType, GameLogEntry, PlayerPublicState, PrivatePlayerState, PrivatePrompt, Role } from '../../game/types';
 import { ActionLog } from '../components/ActionLog';
 import { ActionPanel } from '../components/ActionPanel';
 import { BurnConnectionModal } from '../components/BurnConnectionModal';
@@ -19,11 +19,7 @@ type GameScreenProps = {
   publicPlayers: PlayerPublicState[];
   activePlayerName: string | null;
   privateState: PrivatePlayerState | null;
-  promptKind: 'idle' | 'challenge' | 'block' | 'block-challenge';
-  promptLabel?: string;
-  eligibleBlockRoles: Role[];
-  activeBurnPrompt: PendingBurn | null;
-  activeJugaadPrompt: PendingJugaad | null;
+  prompt: PrivatePrompt;
   pendingActionType: ActionType | null;
   pendingTargetId: string;
   livingOpponents: PlayerPublicState[];
@@ -52,11 +48,7 @@ export function GameScreen({
   publicPlayers,
   activePlayerName,
   privateState,
-  promptKind,
-  promptLabel,
-  eligibleBlockRoles,
-  activeBurnPrompt,
-  activeJugaadPrompt,
+  prompt,
   pendingActionType,
   pendingTargetId,
   livingOpponents,
@@ -105,8 +97,8 @@ export function GameScreen({
             availableActions={privateState.availableActions}
             isTurn={privateState.isTurn}
             eliminated={privateState.eliminated}
-            pendingBurn={activeBurnPrompt}
-            pendingJugaad={activeJugaadPrompt}
+            pendingBurn={prompt?.type === 'BURN_CONNECTION'}
+            pendingJugaad={prompt?.type === 'JUGAAD_RETURN'}
           />
         ) : (
           <Panel eyebrow="Private" title="Your snapshot">
@@ -125,9 +117,7 @@ export function GameScreen({
 
       <section className="hero-grid table-surface table-surface--log">
         <ResponsePanel
-          promptKind={promptKind}
-          promptLabel={promptLabel}
-          blockRoles={eligibleBlockRoles}
+          prompt={prompt}
           onChallenge={onChallenge}
           onPassChallenge={onPassChallenge}
           onPassBlock={onPassBlock}
@@ -147,12 +137,12 @@ export function GameScreen({
         />
       ) : null}
 
-      {activeBurnPrompt && privateState ? <BurnConnectionModal hiddenConnections={privateState.hiddenConnections} onBurn={onChooseBurn} /> : null}
+      {prompt?.type === 'BURN_CONNECTION' && privateState ? <BurnConnectionModal hiddenConnections={privateState.hiddenConnections} onBurn={onChooseBurn} /> : null}
 
-      {activeJugaadPrompt && privateState ? (
+      {prompt?.type === 'JUGAAD_RETURN' && privateState ? (
         <JugaadReturnModal
           hiddenConnections={privateState.hiddenConnections}
-          drawnConnections={activeJugaadPrompt.drawnConnections}
+          drawnConnections={prompt.drawnConnections}
           selectedIds={jugaadSelectedIds}
           onToggle={onToggleJugaad}
           onSubmit={onSubmitJugaad}

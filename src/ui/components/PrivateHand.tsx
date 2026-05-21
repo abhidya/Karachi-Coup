@@ -1,6 +1,6 @@
 import { Panel, Pill, Row, Stack } from '../../components/Ui';
 import { labels } from '../../game/theme';
-import type { ActionType, ConnectionCard, PendingBurn, PendingJugaad, PlayerId } from '../../game/types';
+import type { ActionType, ConnectionCard, PlayerId } from '../../game/types';
 import { ConnectionCard as Card } from './ConnectionCard';
 import { ROLE_IMAGE_BY_ROLE } from '../imageAssets';
 
@@ -11,8 +11,8 @@ type PrivateHandProps = {
   availableActions: ActionType[];
   isTurn: boolean;
   eliminated: boolean;
-  pendingBurn: PendingBurn | null;
-  pendingJugaad: PendingJugaad | null;
+  pendingBurn: boolean;
+  pendingJugaad: boolean;
 };
 
 export function PrivateHand({

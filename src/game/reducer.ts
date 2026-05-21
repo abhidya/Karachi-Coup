@@ -16,9 +16,20 @@ import {
   shuffleIntoDeck,
 } from './rules';
 import { createActionId, createBasePlayer, toPlayerId } from './utils';
+import { labels } from './theme';
 
 function logEntry(text: string) {
   return { id: createActionId(), text };
+}
+
+function playerName(state: HostGameState, playerId: PlayerId | null | undefined): string {
+  if (!playerId) return 'Someone';
+  return state.playersById[playerId]?.name ?? 'Someone';
+}
+
+function roleName(role: Role | null | undefined): string {
+  if (!role) return 'a role';
+  return labels.roleTheme[role].label;
 }
 
 function bump(state: HostGameState, next: HostGameState, text: string): HostGameState {
@@ -291,7 +302,7 @@ function declareAction(state: HostGameState, action: PendingAction): HostGameSta
 
   switch (action.actionType) {
     case 'CHAI_PAISA':
-      return bump(state, advanceTurn(applyRupees(state, action.actorId, 1)), 'Chai Paisa');
+      return bump(state, advanceTurn(applyRupees(state, action.actorId, 1)), `${playerName(state, action.actorId)} takes Chai Paisa.`);
     case 'RISHTEDAAR_HELP':
       return bump(
         state,
@@ -300,7 +311,7 @@ function declareAction(state: HostGameState, action: PendingAction): HostGameSta
           phase: 'BLOCK_WINDOW',
           pendingAction: action,
         },
-        'Rishtedaar Help',
+        `${playerName(state, action.actorId)} claims Rishtedaar Help.`,
       );
     case 'KIRAYA_COLLECTION':
     case 'POLICE_WALA_RAID':
@@ -323,7 +334,7 @@ function declareAction(state: HostGameState, action: PendingAction): HostGameSta
             responses: {},
           },
         },
-        action.actionType,
+        `${playerName(state, action.actorId)} claims ${labels.actionLabels[action.actionType]}${action.claimedRole ? ` as ${roleName(action.claimedRole)}` : ''}.`,
       );
     case 'FULL_BEIZZATI':
       return bump(
@@ -334,7 +345,7 @@ function declareAction(state: HostGameState, action: PendingAction): HostGameSta
           pendingAction: action,
           pendingBurn: { playerId: action.targetId!, reason: 'full-beizzati', continueTo: 'turn_end', actionId: action.actionId },
         },
-        'Full Beizzati',
+        `${playerName(state, action.actorId)} plays Full Beizzati on ${playerName(state, action.targetId)}.`,
       );
     default:
       return state;
@@ -351,7 +362,7 @@ function passChallenge(state: HostGameState, playerId: PlayerId): HostGameState 
   const nextChallenge = { ...challenge, responses };
 
   if (!allPassed) {
-    return bump(state, { ...state, pendingChallenge: nextChallenge }, 'Let It Slide');
+    return bump(state, { ...state, pendingChallenge: nextChallenge }, `${playerName(state, playerId)} lets it slide.`);
   }
 
   if (challenge.kind === 'action') {
@@ -369,20 +380,20 @@ function passChallenge(state: HostGameState, playerId: PlayerId): HostGameState 
           pendingAction: pending,
           pendingJugaad: { playerId: pending.actorId, drawnConnections: drawn.cards, drawnCards: drawn.cards },
         },
-        'Zardaar Jugaad',
+        `${playerName(state, playerId)} lets it slide. ${playerName(state, pending.actorId)} resolves Zardaar Jugaad.`,
       );
     }
-    return bump(state, { ...state, phase: 'BLOCK_WINDOW', pendingChallenge: null }, 'Let It Slide');
+    return bump(state, { ...state, phase: 'BLOCK_WINDOW', pendingChallenge: null }, `${playerName(state, playerId)} lets it slide.`);
   }
 
-  return bump(state, resolveBlockStand({ ...state, pendingChallenge: null }), 'Let It Slide');
+  return bump(state, resolveBlockStand({ ...state, pendingChallenge: null }), `${playerName(state, playerId)} lets it slide.`);
 }
 
 function passBlock(state: HostGameState, _playerId: PlayerId): HostGameState {
   if (state.phase !== 'BLOCK_WINDOW') return state;
   const pending = state.pendingAction;
   if (!pending) return state;
-  return bump(state, resolveUnblockedAction({ ...state, pendingChallenge: null, pendingBlock: null }), 'Let It Slide');
+  return bump(state, resolveUnblockedAction({ ...state, pendingChallenge: null, pendingBlock: null }), `${playerName(state, _playerId)} lets it slide.`);
 }
 
 function blockAction(state: HostGameState, block: { actionId: string; blockerId: PlayerId; blockingRole: Role; targetId: PlayerId | null }): HostGameState {
@@ -416,7 +427,7 @@ function blockAction(state: HostGameState, block: { actionId: string; blockerId:
         responses: {},
       },
     },
-    'Use Setting',
+    `${playerName(state, block.blockerId)} uses Setting: ${roleName(block.blockingRole)}.`,
   );
 }
 
@@ -429,17 +440,22 @@ function chooseBurn(state: HostGameState, playerId: PlayerId, connectionId: stri
   if (!burnedCard) return state;
   const burned = burnCard(state, playerId, connectionId);
   const cleared: HostGameState = { ...burned, pendingBurn: null, pendingChallenge: null };
+  const proofMessage =
+    pendingBurn.reason === 'challenge-loss' && state.pendingChallenge && pendingBurn.playerId !== state.pendingChallenge.claimantId
+      ? `${playerName(state, state.pendingChallenge.claimantId)} proves ${roleName(state.pendingChallenge.claimedRole)}.`
+      : '';
+  const burnMessage = proofMessage ? `${proofMessage} ${playerName(state, playerId)} burns a Connection.` : `${playerName(state, playerId)} burns a Connection.`;
 
   if (pendingBurn.continueTo === 'continue_action') {
-    return bump(state, resolveAfterSuccessfulActionProof(cleared), 'Burn Connection');
+    return bump(state, resolveAfterSuccessfulActionProof(cleared), burnMessage);
   }
   if (pendingBurn.continueTo === 'continue_block') {
-    return bump(state, resolveAfterFailedBlockProof(cleared), 'Burn Connection');
+    return bump(state, resolveAfterFailedBlockProof(cleared), burnMessage);
   }
   if (pendingBurn.continueTo === 'turn_end') {
-    return bump(state, advanceTurn({ ...cleared, pendingAction: null, pendingBlock: null }), 'Burn Connection');
+    return bump(state, advanceTurn({ ...cleared, pendingAction: null, pendingBlock: null }), burnMessage);
   }
-  return bump(state, gameOverState(cleared, firstAlivePlayerId(cleared)), 'Burn Connection');
+  return bump(state, gameOverState(cleared, firstAlivePlayerId(cleared)), burnMessage);
 }
 
 function requestResync(state: HostGameState): HostGameState {
@@ -496,10 +512,10 @@ export function reducer(state: HostGameState, event: GameEvent): HostGameState {
       return declareAction(state, event.action);
     case 'CHALLENGE':
       if (state.pendingChallenge?.kind === 'block') {
-        return bump(state, resolveAfterBlockChallenge(state, event.challengerId), 'Call Bakwaas');
+        return bump(state, resolveAfterBlockChallenge(state, event.challengerId), `${playerName(state, event.challengerId)} calls bakwaas.`);
       }
       if (state.pendingChallenge?.kind === 'action') {
-        return bump(state, resolveAfterActionChallenge(state, event.challengerId), 'Call Bakwaas');
+        return bump(state, resolveAfterActionChallenge(state, event.challengerId), `${playerName(state, event.challengerId)} calls bakwaas.`);
       }
       return state;
     case 'PASS_CHALLENGE':
@@ -513,7 +529,7 @@ export function reducer(state: HostGameState, event: GameEvent): HostGameState {
     case 'JUGAAD_RETURN':
       {
         const next = resolveJugaadReturn(state, event.playerId, event.returnedConnectionIds);
-        return next === state ? state : bump(state, next, 'Zardaar Jugaad');
+        return next === state ? state : bump(state, next, `${playerName(state, event.playerId)} resolves Zardaar Jugaad.`);
       }
     case 'REQUEST_RESYNC':
       return requestResync(state);

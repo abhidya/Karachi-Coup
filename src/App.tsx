@@ -245,6 +245,7 @@ export function App() {
   const [joinCode, setJoinCode] = useState(routeRoomId);
   const [hostSnapshot, setHostSnapshot] = useState<HostNetworkSnapshot | null>(null);
   const [clientSnapshot, setClientSnapshot] = useState<ClientNetworkSnapshot | null>(null);
+  const [hostPlayerId, setHostPlayerId] = useState<string | null>(null);
   const [pendingActionType, setPendingActionType] = useState<ActionType | null>(null);
   const [pendingTargetId, setPendingTargetId] = useState('');
   const [jugaadReturnIds, setJugaadReturnIds] = useState<string[]>([]);
@@ -275,7 +276,7 @@ export function App() {
 
   const activeSnapshot = mode === 'host' ? hostSnapshot : clientSnapshot;
   const publicState = activeSnapshot?.publicState ?? hostSnapshot?.publicState ?? clientSnapshot?.publicState ?? null;
-  const privateState = clientSnapshot?.privateState ?? null;
+  const privateState = mode === 'host' ? (hostPlayerId ? hostSnapshot?.privateStates[hostPlayerId] ?? null : null) : clientSnapshot?.privateState ?? null;
   const hostPlayers = hostSnapshot?.players ?? buildLobbyPlayers(publicState);
   const roomLink = roomId ? formatRoomLink(roomId) : '';
   const isGamePhase = publicState?.phase && publicState.phase !== 'LOBBY';
@@ -283,39 +284,7 @@ export function App() {
   const currentPlayerId = privateState?.playerId ?? null;
   const livingOpponents =
     publicState?.players.filter((player) => player.id !== currentPlayerId && !player.eliminated) ?? [];
-  const eligibleBlockRoles: Role[] =
-    publicState?.pendingAction?.actionType === 'RISHTEDAAR_HELP'
-      ? ['MALIK_SAAB']
-      : publicState?.pendingAction?.actionType === 'POLICE_WALA_RAID'
-        ? publicState?.pendingAction?.targetId === currentPlayerId
-          ? ['POLICE_WALA', 'ZARDAAR_CHOR']
-          : []
-        : publicState?.pendingAction?.actionType === 'BHAI_KA_SCENE'
-          ? publicState?.pendingAction?.targetId === currentPlayerId
-            ? ['MUMMA']
-            : []
-          : [];
-  const pendingChallenge = privateState?.pendingChallenge ?? null;
-  const challengePrompt =
-    pendingChallenge &&
-    currentPlayerId &&
-    pendingChallenge.claimantId !== currentPlayerId &&
-    pendingChallenge.eligibleChallengers.includes(currentPlayerId)
-      ? pendingChallenge
-      : null;
-  const canSeeBlockPrompt = Boolean(publicState?.phase === 'BLOCK_WINDOW' && eligibleBlockRoles.length);
-  const activeBurnPrompt = privateState?.pendingBurn?.playerId === currentPlayerId ? privateState.pendingBurn : null;
-  const activeJugaadPrompt = privateState?.pendingJugaad?.playerId === currentPlayerId ? privateState.pendingJugaad : null;
-  const promptKind: 'idle' | 'challenge' | 'block' | 'block-challenge' =
-    challengePrompt ? (publicState?.pendingChallenge?.kind === 'block' ? 'block-challenge' : 'challenge') : canSeeBlockPrompt ? 'block' : 'idle';
-  const promptLabel =
-    promptKind === 'challenge' && publicState?.pendingAction
-      ? `Challenge ${labels.actionLabels[publicState.pendingAction.actionType]} from ${turnOwner?.name ?? 'the active player'}`
-      : promptKind === 'block' && publicState?.pendingAction
-        ? `Use Setting against ${labels.actionLabels[publicState.pendingAction.actionType]}`
-        : promptKind === 'block-challenge' && publicState?.pendingBlock
-          ? `Challenge ${labels.roleTheme[publicState.pendingBlock.blockingRole].label}`
-          : undefined;
+  const prompt = privateState?.prompt ?? null;
   const forcedActionType = privateState?.availableActions.length === 1 ? privateState.availableActions[0] ?? null : null;
   const screenBackground =
     route === 'home'
@@ -345,10 +314,19 @@ export function App() {
     }
   }, [pendingActionType, privateState?.availableActions]);
 
+  useEffect(() => {
+    if (mode !== 'host' || hostPlayerId) return;
+    const handle = hostHandleRef.current;
+    if (!handle || !displayName) return;
+    const joinedId = handle.joinHostPlayer(displayName);
+    setHostPlayerId((current) => (current === joinedId ? current : joinedId));
+  }, [displayName, hostHandleRef, hostPlayerId, mode, hostSnapshot]);
+
   const createRoom = () => {
     const nextRoomId = generateRoomId();
     setRoomId(nextRoomId);
     setJoinCode(nextRoomId);
+    setHostPlayerId(null);
     setMode('host');
     writeSessionStorage<StoredSession>(sessionStorageKey(), {
       mode: 'host',
@@ -363,6 +341,7 @@ export function App() {
     if (!nextRoomId) return;
 
     setRoomId(nextRoomId);
+    setHostPlayerId(null);
     setMode('client');
     writeSessionStorage<StoredSession>(sessionStorageKey(), {
       mode: 'client',
@@ -378,6 +357,7 @@ export function App() {
     setMode('idle');
     setRoomId('');
     setJoinCode('');
+    setHostPlayerId(null);
     writeSessionStorage<StoredSession>(sessionStorageKey(), {
       mode: 'idle',
       roomId: '',
@@ -397,7 +377,11 @@ export function App() {
     }
   };
 
-  const sendClientMessage = (message: ClientMessage) => {
+  const sendIntent = (message: ClientMessage) => {
+    if (mode === 'host') {
+      hostHandleRef.current?.sendLocal(message);
+      return;
+    }
     clientHandleRef.current?.send(message);
   };
 
@@ -408,24 +392,24 @@ export function App() {
       setPendingTargetId('');
       return;
     }
-    sendClientMessage({ type: 'DECLARE_ACTION', actionType, targetId: null });
+    sendIntent({ type: 'DECLARE_ACTION', actionType, targetId: null });
   };
 
   const confirmTargetAction = () => {
     if (!pendingActionType || !pendingTargetId) return;
-    sendClientMessage({ type: 'DECLARE_ACTION', actionType: pendingActionType, targetId: pendingTargetId });
+    sendIntent({ type: 'DECLARE_ACTION', actionType: pendingActionType, targetId: pendingTargetId });
     setPendingActionType(null);
     setPendingTargetId('');
   };
 
-  const challenge = () => sendClientMessage({ type: 'CHALLENGE' });
-  const passChallenge = () => sendClientMessage({ type: 'PASS_CHALLENGE' });
-  const passBlock = () => sendClientMessage({ type: 'PASS_BLOCK' });
-  const chooseBurn = (connectionId: string) => sendClientMessage({ type: 'CHOOSE_CONNECTION_TO_BURN', connectionId });
-  const chooseBlockRole = (role: Role) => sendClientMessage({ type: 'BLOCK', role });
+  const challenge = () => sendIntent({ type: 'CHALLENGE' });
+  const passChallenge = () => sendIntent({ type: 'PASS_CHALLENGE' });
+  const passBlock = () => sendIntent({ type: 'PASS_BLOCK' });
+  const chooseBurn = (connectionId: string) => sendIntent({ type: 'CHOOSE_CONNECTION_TO_BURN', connectionId });
+  const chooseBlockRole = (role: Role) => sendIntent({ type: 'BLOCK', role });
   const submitJugaad = () => {
     if (jugaadReturnIds.length !== 2) return;
-    sendClientMessage({ type: 'JUGAAD_RETURN', returnedConnectionIds: [jugaadReturnIds[0]!, jugaadReturnIds[1]!] });
+    sendIntent({ type: 'JUGAAD_RETURN', returnedConnectionIds: [jugaadReturnIds[0]!, jugaadReturnIds[1]!] });
     setJugaadReturnIds([]);
   };
   const toggleJugaadCard = (connectionId: string) => {
@@ -527,9 +511,7 @@ export function App() {
             publicPlayers={publicState?.players ?? []}
             activePlayerName={activePlayerName}
             privateState={privateState}
-            eligibleBlockRoles={eligibleBlockRoles}
-            activeBurnPrompt={activeBurnPrompt}
-            activeJugaadPrompt={activeJugaadPrompt}
+            prompt={prompt}
             pendingActionType={pendingActionType}
             pendingTargetId={pendingTargetId}
             livingOpponents={livingOpponents}
@@ -549,8 +531,6 @@ export function App() {
             onCancelTarget={cancelTargetPicker}
             onLeaveRoom={leaveRoom}
             onOpenRules={() => setShowRules(true)}
-            promptKind={promptKind}
-            promptLabel={promptLabel}
             forcedActionType={forcedActionType}
           />
         ) : null}

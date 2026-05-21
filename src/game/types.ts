@@ -97,6 +97,44 @@ export interface PendingJugaad {
   drawnCards: ConnectionCard[];
 }
 
+export type PrivatePrompt =
+  | {
+      type: 'CHALLENGE_ACTION';
+      actionId: string;
+      actorId: PlayerId;
+      actionType: ActionType;
+      claimedRole: Role;
+      message: string;
+    }
+  | {
+      type: 'BLOCK_ACTION';
+      actionId: string;
+      actorId: PlayerId;
+      actionType: ActionType;
+      targetId: PlayerId | null;
+      legalBlockRoles: Role[];
+      message: string;
+    }
+  | {
+      type: 'CHALLENGE_BLOCK';
+      actionId: string;
+      blockerId: PlayerId;
+      blockingRole: Role;
+      message: string;
+    }
+  | {
+      type: 'BURN_CONNECTION';
+      playerId: PlayerId;
+      message: string;
+    }
+  | {
+      type: 'JUGAAD_RETURN';
+      playerId: PlayerId;
+      drawnConnections: ConnectionCard[];
+      message: string;
+    }
+  | null;
+
 export interface GameLogEntry {
   id: string;
   text: string;
@@ -172,6 +210,7 @@ export interface PrivatePlayerState {
   eliminated: boolean;
   isTurn: boolean;
   availableActions: ActionType[];
+  prompt: PrivatePrompt;
   pendingAction: PendingAction | null;
   pendingChallenge: PendingChallenge | null;
   pendingBlock: PendingBlock | null;

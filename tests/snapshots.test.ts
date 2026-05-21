@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { reducer } from '../src/game/reducer';
 import { toPublicGameState, toPrivatePlayerState } from '../src/game/snapshots';
-import { card, declare, passChallenge, lobbyState, turnState, turnState3 } from './_helpers';
+import { card, declare, lobbyState, passChallenge, turnState, turnState3 } from './_helpers';
 import { toPlayerId } from '../src/game/utils';
 
 describe('snapshots', () => {
@@ -32,6 +32,28 @@ describe('snapshots', () => {
     expect(publicState.players[0]?.revealedConnections).toEqual([]);
   });
 
+  it('public scene: Challenge Window names actor and action', () => {
+    const declared = declare(turnState3([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')]), 'KIRAYA_COLLECTION');
+    const publicState = toPublicGameState(declared);
+    expect(publicState.currentScene).toContain('Alice');
+    expect(publicState.currentScene).toContain('Kiraya Collection');
+  });
+
+  it('public scene: Block Window names blocker options/action', () => {
+    const declared = declare(turnState3([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')]), 'RISHTEDAAR_HELP');
+    const publicState = toPublicGameState(declared);
+    expect(publicState.currentScene).toContain('Use Setting');
+    expect(publicState.currentScene).toContain('Rishtedaar Help');
+  });
+
+  it('public scene: Burn prompt names player who must burn', () => {
+    const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'KIRAYA_COLLECTION');
+    const challenged = reducer(declared, { type: 'CHALLENGE', challengerId: toPlayerId('p2') });
+    const publicState = toPublicGameState(challenged);
+    expect(publicState.currentScene).toContain('Burn');
+    expect(publicState.currentScene).toContain('Bob');
+  });
+
   it('snapshot: private state for Player 1 includes only Player 1 hidden Connections', () => {
     const state = reducer(lobbyState(2), { type: 'START_GAME' });
     const privateState = toPrivatePlayerState(state, toPlayerId('p1'));
@@ -60,16 +82,71 @@ describe('snapshots', () => {
 
   it('snapshot: private state includes Call Bakwaas prompt only for eligible challengers', () => {
     const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'KIRAYA_COLLECTION');
-    const challenged = reducer(declared, { type: 'CHALLENGE', challengerId: toPlayerId('p2') });
-    const privateState = toPrivatePlayerState(challenged, toPlayerId('p2'));
-    expect(privateState.pendingChallenge?.kind).toBe('action');
+    const challengerState = toPrivatePlayerState(declared, toPlayerId('p2'));
+    const claimantState = toPrivatePlayerState(declared, toPlayerId('p1'));
+    expect(challengerState.prompt?.type).toBe('CHALLENGE_ACTION');
+    expect(claimantState.prompt).toBeNull();
   });
 
   it('snapshot: private state includes Use Setting prompt only for eligible blocker', () => {
     const declared = declare(turnState3([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')]), 'RISHTEDAAR_HELP');
-    const publicState = toPublicGameState(declared);
-    expect(publicState.phase).toBe('BLOCK_WINDOW');
-    expect(publicState.pendingAction?.actionType).toBe('RISHTEDAAR_HELP');
+    const blockerState = toPrivatePlayerState(declared, toPlayerId('p2'));
+    const ineligibleState = toPrivatePlayerState(declared, toPlayerId('p1'));
+    expect(blockerState.prompt?.type).toBe('BLOCK_ACTION');
+    expect(ineligibleState.prompt).toBeNull();
+  });
+
+  it('private prompt: Police Wala Raid gives block prompt only to target', () => {
+    const declared = declare(turnState3([card('MALIK_SAAB'), card('BHAI')], [card('POLICE_WALA'), card('MUMMA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')]), 'POLICE_WALA_RAID', toPlayerId('p2'));
+    const openBlock = passChallenge(passChallenge(declared, toPlayerId('p2')), toPlayerId('p3'));
+    const targetState = toPrivatePlayerState(openBlock, toPlayerId('p2'));
+    const otherState = toPrivatePlayerState(openBlock, toPlayerId('p3'));
+    expect(targetState.prompt?.type).toBe('BLOCK_ACTION');
+    expect(otherState.prompt).toBeNull();
+  });
+
+  it('private prompt: Bhai Ka Scene gives Mumma block prompt only to target', () => {
+    const declared = declare(turnState3([card('BHAI'), card('MALIK_SAAB')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')], 5, 2, 2), 'BHAI_KA_SCENE', toPlayerId('p2'));
+    const openBlock = passChallenge(passChallenge(declared, toPlayerId('p2')), toPlayerId('p3'));
+    const targetState = toPrivatePlayerState(openBlock, toPlayerId('p2'));
+    const otherState = toPrivatePlayerState(openBlock, toPlayerId('p3'));
+    expect(targetState.prompt?.type).toBe('BLOCK_ACTION');
+    expect(otherState.prompt).toBeNull();
+  });
+
+  it('private prompt: block challenger prompt is sent to living non-blockers', () => {
+    const declared = declare(turnState3([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('MALIK_SAAB')]), 'RISHTEDAAR_HELP');
+    const blocked = reducer(declared, {
+      type: 'BLOCK',
+      block: {
+        actionId: declared.pendingAction!.actionId,
+        blockerId: toPlayerId('p2'),
+        blockingRole: 'MALIK_SAAB',
+        targetId: null,
+        eligibleChallengers: [toPlayerId('p1'), toPlayerId('p3')],
+        responses: {},
+      },
+    });
+    const challengerState = toPrivatePlayerState(blocked, toPlayerId('p3'));
+    expect(challengerState.prompt?.type).toBe('CHALLENGE_BLOCK');
+  });
+
+  it('private prompt: burn prompt is sent only to burning player', () => {
+    const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'KIRAYA_COLLECTION');
+    const challenged = reducer(declared, { type: 'CHALLENGE', challengerId: toPlayerId('p2') });
+    const burning = toPrivatePlayerState(challenged, toPlayerId('p2'));
+    const notBurning = toPrivatePlayerState(challenged, toPlayerId('p1'));
+    expect(burning.prompt?.type).toBe('BURN_CONNECTION');
+    expect(notBurning.prompt).toBeNull();
+  });
+
+  it('private prompt: Jugaad return prompt is sent only to Jugaad player', () => {
+    const declared = declare(turnState([card('ZARDAAR_CHOR'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'ZARDAAR_JUGAAD');
+    const passed = reducer(declared, { type: 'PASS_CHALLENGE', playerId: toPlayerId('p2') });
+    const jugaadPlayer = toPrivatePlayerState(passed, toPlayerId('p1'));
+    const otherPlayer = toPrivatePlayerState(passed, toPlayerId('p2'));
+    expect(jugaadPlayer.prompt?.type).toBe('JUGAAD_RETURN');
+    expect(otherPlayer.prompt).toBeNull();
   });
 
   it('snapshot: sequence number increases after accepted reducer events', () => {

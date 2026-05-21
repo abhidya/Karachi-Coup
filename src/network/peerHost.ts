@@ -47,6 +47,12 @@ type PersistedHostState = {
   state: HostGameState;
 };
 
+type StoredHostIdentity = {
+  clientNonce: string;
+  displayName: string;
+  playerId: string | null;
+};
+
 export type HostNetworkPhase = 'idle' | 'starting' | 'ready' | 'error' | 'closed';
 
 export type HostNetworkSnapshot = {
@@ -66,6 +72,8 @@ export type HostNetworkSnapshot = {
 export type PeerHostHandle = {
   readonly snapshot: HostNetworkSnapshot;
   subscribe(listener: (snapshot: HostNetworkSnapshot) => void): () => void;
+  joinHostPlayer(displayName: string): PlayerId;
+  sendLocal(data: ClientMessage): void;
   startGame(): void;
   resetRoom(): void;
   broadcast(data: unknown): void;
@@ -91,12 +99,24 @@ function connectionKey(roomId: string) {
   return hostStorageKey(roomId);
 }
 
+function hostIdentityKey(roomId: string) {
+  return `${hostStorageKey(roomId)}:identity`;
+}
+
 function loadStoredState(roomId: string): HostGameState | null {
   return readLocalStorage<PersistedHostState>(connectionKey(roomId))?.state ?? null;
 }
 
 function persistState(roomId: string, state: HostGameState): void {
   writeLocalStorage<PersistedHostState>(connectionKey(roomId), { state });
+}
+
+function loadHostIdentity(roomId: string): StoredHostIdentity | null {
+  return readLocalStorage<StoredHostIdentity>(hostIdentityKey(roomId));
+}
+
+function persistHostIdentity(roomId: string, identity: StoredHostIdentity): void {
+  writeLocalStorage<StoredHostIdentity>(hostIdentityKey(roomId), identity);
 }
 
 function makeGameId(roomId: string): string {
@@ -112,6 +132,14 @@ function makePlayerId(roomId: string, clientNonce: string, existingIds: Set<Play
     candidate = toPlayerId(`${basis || `${roomId}-player`}-${suffix}`);
   }
   return candidate;
+}
+
+function makeHostNonce(roomId: string): string {
+  const existing = loadHostIdentity(roomId);
+  if (existing?.clientNonce) return existing.clientNonce;
+  const nonce = globalThis.crypto?.randomUUID?.() ?? `host-${roomId}-${Date.now().toString(36)}`;
+  persistHostIdentity(roomId, { clientNonce: nonce, displayName: 'Player 1', playerId: null });
+  return nonce;
 }
 
 function buildPlayerViews(state: HostGameState): HostLobbyPlayerView[] {
@@ -245,7 +273,10 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   const listeners = new Set<(snapshot: HostNetworkSnapshot) => void>();
   const connections = new Map<string, JoinedConnection>();
   const storedState = loadStoredState(roomId);
+  const storedIdentity = loadHostIdentity(roomId) ?? { clientNonce: makeHostNonce(roomId), displayName: 'Player 1', playerId: null };
   let state = storedState ?? createHostGameState(roomId, makeGameId(roomId));
+  let hostPlayerId: PlayerId | null =
+    Object.entries(state.playersById).find(([, player]) => player.clientNonce === storedIdentity.clientNonce)?.[0] as PlayerId | null ?? null;
   let peer: HostPeerInstance | null = null;
   let snapshot = buildSnapshot('starting', roomId, null, connections, state, null, null, Boolean(storedState));
   let destroyed = false;
@@ -271,6 +302,84 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   const setState = (nextState: HostGameState, eventLabel: string) => {
     state = nextState;
     broadcastState(eventLabel);
+  };
+
+  const ensureHostPlayer = (displayName: string, suppressBroadcast = false): PlayerId => {
+    const normalizedName = safeTrim(displayName, 'Player 1');
+    const existing = hostPlayerId
+      ? state.playersById[hostPlayerId]
+      : Object.entries(state.playersById).find(([, player]) => player.clientNonce === storedIdentity.clientNonce)?.[1];
+    if (existing) {
+      hostPlayerId = existing.id;
+      state = {
+        ...state,
+        playersById: {
+          ...state.playersById,
+          [existing.id]: {
+            ...existing,
+            name: normalizedName,
+            clientNonce: storedIdentity.clientNonce as never,
+            connected: true,
+          },
+        },
+        turnOrder: state.turnOrder.includes(existing.id) ? state.turnOrder : [existing.id, ...state.turnOrder],
+      };
+      persistHostIdentity(roomId, { clientNonce: storedIdentity.clientNonce, displayName: normalizedName, playerId: existing.id });
+      if (!suppressBroadcast) {
+        broadcastState('host:join-self');
+      }
+      return existing.id;
+    }
+
+    const playerId = makePlayerId(roomId, storedIdentity.clientNonce, new Set(Object.keys(state.playersById).map((value) => toPlayerId(value))));
+    hostPlayerId = playerId;
+    state = {
+      ...state,
+      playersById: {
+        ...state.playersById,
+        [playerId]: {
+          ...createBasePlayer(playerId, normalizedName),
+          clientNonce: storedIdentity.clientNonce as never,
+          connected: true,
+        },
+      },
+      turnOrder: [playerId, ...state.turnOrder.filter((existingId) => existingId !== playerId)],
+    };
+    persistHostIdentity(roomId, { clientNonce: storedIdentity.clientNonce, displayName: normalizedName, playerId });
+    if (!suppressBroadcast) {
+      broadcastState('host:join-self');
+    }
+    return playerId;
+  };
+
+  const applyLocalMessage = (message: ClientMessage, playerId: PlayerId) => {
+    const validation = validateClientMessage(state, playerId, message);
+    if (!validation.ok) {
+      snapshot = {
+        ...snapshot,
+        lastEvent: `host:local:error:${message.type}`,
+        error: validation.reason ?? 'Message rejected.',
+      };
+      listeners.forEach((listener) => listener(snapshot));
+      return;
+    }
+
+    const event = mapMessageToEvent(state, message as Exclude<ClientMessage, ClientJoinMessage | ClientResyncMessage>, playerId);
+    if (!event) {
+      snapshot = {
+        ...snapshot,
+        lastEvent: `host:local:unsupported:${message.type}`,
+        error: 'Unsupported client message.',
+      };
+      listeners.forEach((listener) => listener(snapshot));
+      return;
+    }
+
+    const nextState = reducer(state, event);
+    if (nextState !== state) {
+      state = nextState;
+      broadcastState(`host:local:${message.type}`);
+    }
   };
 
   const joinPlayer = (connection: HostConnection, message: ClientJoinMessage) => {
@@ -388,6 +497,10 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
         listener(snapshot);
         return () => listeners.delete(listener);
       },
+      joinHostPlayer() {
+        return '' as PlayerId;
+      },
+      sendLocal() {},
       startGame() {},
       resetRoom() {},
       broadcast() {},
@@ -480,6 +593,21 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       listener(snapshot);
       return () => listeners.delete(listener);
     },
+    joinHostPlayer(displayName: string) {
+      return ensureHostPlayer(displayName);
+    },
+    sendLocal(data: ClientMessage) {
+      if (!hostPlayerId) {
+        snapshot = {
+          ...snapshot,
+          lastEvent: 'host:local:error:no-host-player',
+          error: 'Host player not joined yet.',
+        };
+        listeners.forEach((listener) => listener(snapshot));
+        return;
+      }
+      applyLocalMessage(data, hostPlayerId);
+    },
     startGame() {
       if (snapshot.phase === 'error') {
         return;
@@ -491,6 +619,11 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     },
     resetRoom() {
       state = createHostGameState(roomId, makeGameId(roomId));
+      hostPlayerId = null;
+      const identity = loadHostIdentity(roomId);
+      if (identity?.clientNonce) {
+        hostPlayerId = ensureHostPlayer(identity.displayName || 'Player 1', true);
+      }
       broadcastState('host:reset-room');
     },
     broadcast(data: unknown) {
