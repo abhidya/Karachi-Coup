@@ -33,12 +33,15 @@ npm test
 
 ```bash
 npm run test:e2e
+npm run test:e2e:peer
 npm run test:e2e:headed
 npm run test:e2e:ui
 npm run test:e2e:github
 ```
 
-The E2E suite runs against local Vite preview by default. The `test:e2e:github` script points at the deployed GitHub Pages URL.
+`npm run test:e2e` runs the smoke and routing checks against local Vite preview by default.
+`npm run test:e2e:peer` runs the PeerJS multiplayer gameplay checks.
+The `test:e2e:github` script points at the deployed GitHub Pages URL.
 
 ## Build
 
@@ -68,7 +71,7 @@ If the deployed URL is blank or stale, check the Actions logs and confirm `dist/
 2. Share the room code or link.
 3. Players join with a display name.
 4. Host starts the game.
-5. Host is the table authority only; the host should open a second tab or phone to play as a normal player.
+5. Host creates the room and joins as Player 1 automatically. Other players join by room code. Keep the host device open because it owns the authoritative game state.
 6. Players take turns, bluff, call bakwaas, use setting, burn Connections, and try to be the last one standing.
 
 ## Asset naming notes

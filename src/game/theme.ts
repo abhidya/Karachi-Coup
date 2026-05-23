@@ -75,7 +75,7 @@ export const rulesGuide = {
   ],
   peerRules: [
     'Host-authoritative PeerJS. The host owns hidden state and validates every intent.',
-    'Join from another phone or tab by room code. Reconnect is best-effort.',
+    'Host creates the room and joins as Player 1 automatically. Other players join by room code. Reconnect is best-effort.',
     'This is for friends and local play, not ranked or competitive play.',
   ],
 } as const;

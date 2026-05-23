@@ -18,6 +18,7 @@ import { JoinRoomScreen } from './ui/screens/JoinRoomScreen';
 import { LobbyScreen } from './ui/screens/LobbyScreen';
 import { GameScreen } from './ui/screens/GameScreen';
 import { RulesModal } from './ui/components/RulesModal';
+import { formatRoomLink } from './routing';
 import { createPeerClient, type ClientNetworkSnapshot, type PeerClientHandle } from './network/peerClient';
 import { createPeerHost, type HostNetworkSnapshot, type PeerHostHandle } from './network/peerHost';
 import { readSessionStorage, sessionStorageKey, writeSessionStorage } from './network/storage';
@@ -64,11 +65,6 @@ function generateRoomId() {
 
 function normalizeRoomCode(value: string) {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
-}
-
-function formatRoomLink(roomId: string) {
-  const base = `${window.location.origin}${window.location.pathname}`;
-  return `${base}#/lobby?room=${roomId}`;
 }
 
 function phaseTone(value: string | null | undefined) {

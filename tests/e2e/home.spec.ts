@@ -17,6 +17,7 @@ test.describe('Karachi Coup shell', () => {
 
     await expect(page).toHaveURL(/#\/(host|lobby)\?room=/);
     await expect(page.getByTestId('room-link')).toBeVisible();
+    await expect(page.getByTestId('room-link')).toContainText('#/join?room=');
   });
 
   test('peer room: two players join host room', async ({ page }) => {

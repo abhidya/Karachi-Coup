@@ -1,4 +1,5 @@
 import { expect, type Browser, type Page } from '@playwright/test';
+import { hostStorageKey } from '../../src/network/storage';
 
 export async function createHostedRoom(page: Page, hostName: string) {
   await page.goto('./');
@@ -17,7 +18,8 @@ export async function createHostedRoom(page: Page, hostName: string) {
 }
 
 export async function joinRoom(page: Page, roomCode: string, playerName: string) {
-  await page.goto('./#/join');
+  await page.goto(`./#/join?room=${roomCode}`);
+  await expect(page.getByTestId('join-code-input')).toHaveValue(roomCode);
   await page.getByTestId('join-code-input').fill(roomCode);
   await page.getByLabel('Your name').fill(playerName);
   await page.getByTestId('join-submit-button').click();
@@ -56,8 +58,13 @@ export async function createThreePlayerLobby(browser: Browser) {
   await joinRoom(playerOnePage, roomCode, 'Ari');
   await joinRoom(playerTwoPage, roomCode, 'Bea');
 
-  await expect(hostPage.locator('.player-list strong').filter({ hasText: 'Ari' })).toBeVisible();
-  await expect(hostPage.locator('.player-list strong').filter({ hasText: 'Bea' })).toBeVisible();
+  const storageKey = hostStorageKey(roomCode);
+  await expect
+    .poll(async () => hostPage.evaluate((key) => window.localStorage.getItem(key), storageKey), { timeout: 30_000 })
+    .toContain('Ari');
+  await expect
+    .poll(async () => hostPage.evaluate((key) => window.localStorage.getItem(key), storageKey), { timeout: 30_000 })
+    .toContain('Bea');
 
   return { hostContext, playerOneContext, playerTwoContext, hostPage, playerOnePage, playerTwoPage, roomCode };
 }

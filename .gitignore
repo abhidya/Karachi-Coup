@@ -1,5 +1,7 @@
 node_modules/
 .pnpm-store/
 *.tsbuildinfo
+.e2e-dist/
+test-results/
 .idea/
 .DS_Store

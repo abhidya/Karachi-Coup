@@ -34,7 +34,7 @@ export function HomeScreen({ displayName, onDisplayNameChange, onCreateRoom, onJ
               inputTestId="display-name-input"
             />
             <p className="muted">
-              Host creates the table. Join from another phone or tab. Hidden Connections stay private.
+              Create a room and play as Player 1. Friends join by room code. Hidden Connections stay private.
             </p>
             <div className="home-banner" style={{ backgroundImage: `linear-gradient(135deg, rgba(6, 10, 18, 0.72), rgba(6, 10, 18, 0.42)), url(${GAME_ASSETS.backgrounds.marketWall})` }}>
               <strong>What you do here</strong>

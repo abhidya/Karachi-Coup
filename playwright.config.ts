@@ -22,7 +22,7 @@ export default defineConfig({
     ? undefined
     : {
         command:
-          `npm run build && rm -rf /private/tmp/kc-e2e-root && mkdir -p /private/tmp/kc-e2e-root && cp -R "$PWD/dist" /private/tmp/kc-e2e-root/Karachi-Coup && python3 -m http.server ${e2ePort} -d /private/tmp/kc-e2e-root`,
+          `npm run build && rm -rf .e2e-dist && mkdir -p .e2e-dist && cp -R "$PWD/dist" .e2e-dist/Karachi-Coup && python3 -m http.server ${e2ePort} -d .e2e-dist`,
         url: `http://127.0.0.1:${e2ePort}/Karachi-Coup/`,
         reuseExistingServer: true,
         timeout: 120_000,
