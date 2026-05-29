@@ -111,18 +111,21 @@ function persistIdentity(identity: StoredClientIdentity): void {
   });
 }
 
-function peerErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-  if (typeof error === 'string' && error.trim()) {
-    return error;
-  }
-  return fallback;
-}
-
 const HOST_UNREACHABLE_MESSAGE = 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.';
 const HOST_SYNC_TIMEOUT_MS = 12_000;
+
+function peerErrorMessage(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (!message.trim()) {
+    return fallback;
+  }
+
+  if (/could not connect to peer/i.test(message)) {
+    return HOST_UNREACHABLE_MESSAGE;
+  }
+
+  return message;
+}
 
 function isServerMessage(value: unknown): value is ServerMessage {
   return Boolean(value && typeof value === 'object' && typeof (value as ServerMessage).type === 'string');
