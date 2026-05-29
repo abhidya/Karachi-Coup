@@ -596,6 +596,10 @@ export function App() {
   };
 
   const publicSummary = publicState ? `${gamePhaseLabel(publicState.phase)} · ${publicState.currentScene}` : 'Waiting for room sync';
+  const connectionIssue =
+    mode === 'client' && clientSnapshot?.phase === 'error'
+      ? clientSnapshot.error || 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.'
+      : null;
   const activePlayerName = turnOwner?.name ?? null;
   const hostStatus = hostSnapshot ? `${hostSnapshot.phase} · ${snapshotActivity(hostSnapshot)}` : 'Not opened yet';
   const clientStatus = clientSnapshot ? `${clientSnapshot.phase} · ${snapshotActivity(clientSnapshot)}` : 'Not opened yet';
@@ -654,6 +658,7 @@ export function App() {
             onGoHost={() => navigate('host')}
             onRequestResync={requestResync}
             clientStatus={clientStatus}
+            connectionIssue={connectionIssue}
             clientPlayerId={clientSnapshot?.playerId ?? ''}
           />
         ) : null}
@@ -667,6 +672,7 @@ export function App() {
             phaseLabel={gamePhaseLabel(publicState?.phase ?? 'LOBBY')}
             turnOwnerName={activePlayerName ?? 'Waiting'}
             mode={mode}
+            connectionIssue={connectionIssue}
             onStartGame={startGame}
             onResetRoom={resetRoom}
             onRequestResync={requestResync}

@@ -9,6 +9,7 @@ type JoinRoomScreenProps = {
   onGoHost: () => void;
   onRequestResync: () => void;
   clientStatus: string;
+  connectionIssue?: string | null;
   clientPlayerId: string;
 };
 
@@ -21,6 +22,7 @@ export function JoinRoomScreen({
   onGoHost,
   onRequestResync,
   clientStatus,
+  connectionIssue,
   clientPlayerId,
 }: JoinRoomScreenProps) {
   return (
@@ -42,6 +44,11 @@ export function JoinRoomScreen({
               After joining, this panel confirms whether the host found you, synced your private hand, and assigned your seat.
             </p>
             <p data-testid="client-status">{clientStatus}</p>
+            {connectionIssue ? (
+              <p className="error-text" data-testid="connection-issue">
+                {connectionIssue}
+              </p>
+            ) : null}
             <p data-testid="private-player-id">Player id: {clientPlayerId || 'Unassigned'}</p>
             <Row>
               <Button variant="secondary" onClick={onRequestResync} data-testid="request-resync-button">Request resync</Button>

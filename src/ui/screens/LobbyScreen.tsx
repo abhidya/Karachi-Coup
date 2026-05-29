@@ -10,6 +10,7 @@ type LobbyScreenProps = {
   phaseLabel: string;
   turnOwnerName: string;
   mode: string;
+  connectionIssue?: string | null;
   onStartGame: () => void;
   onResetRoom: () => void;
   onRequestResync: () => void;
@@ -25,6 +26,7 @@ export function LobbyScreen({
   phaseLabel,
   turnOwnerName,
   mode,
+  connectionIssue,
   onStartGame,
   onResetRoom,
   onRequestResync,
@@ -48,8 +50,13 @@ export function LobbyScreen({
             </Row>
             <p className="current-scene-banner">
               <img className="badge-icon" src={GAME_ASSETS.badges.currentScene} alt="Current scene" />
-              <span data-testid="current-scene">{currentScene || 'Waiting for sync'}</span>
+              <span data-testid="current-scene">{connectionIssue || currentScene || 'Waiting for sync'}</span>
             </p>
+            {connectionIssue ? (
+              <p className="error-text" data-testid="connection-issue">
+                {connectionIssue}
+              </p>
+            ) : null}
             <p className="mono" data-testid="room-link">
               {roomLink || 'Create or join a room first'}
             </p>

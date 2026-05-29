@@ -111,6 +111,18 @@ function persistIdentity(identity: StoredClientIdentity): void {
   });
 }
 
+function peerErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return fallback;
+}
+
+const HOST_UNREACHABLE_MESSAGE = 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.';
+
 function isServerMessage(value: unknown): value is ServerMessage {
   return Boolean(value && typeof value === 'object' && typeof (value as ServerMessage).type === 'string');
 }
@@ -352,7 +364,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
       snapshot = {
         ...snapshot,
         phase: 'error',
-        error: error instanceof Error ? error.message : 'Peer client error.',
+        error: peerErrorMessage(error, HOST_UNREACHABLE_MESSAGE),
         lastMessage: 'client:error',
       };
       emit();
@@ -363,7 +375,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     snapshot = {
       ...snapshot,
       phase: 'error',
-      error: error instanceof Error ? error.message : 'Peer client error.',
+      error: peerErrorMessage(error, HOST_UNREACHABLE_MESSAGE),
       lastMessage: 'client:error',
     };
     emit();

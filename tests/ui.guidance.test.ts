@@ -5,6 +5,7 @@ import { ACTION_TYPES, type PublicGameState } from '../src/game/types';
 import { toConnectionCardId, toGameId, toPlayerId, toRoomCode } from '../src/game/utils';
 import { actionMetaParts, publicPlayerStatus } from '../src/ui/gameGuidance';
 import { GameScreen } from '../src/ui/screens/GameScreen';
+import { LobbyScreen } from '../src/ui/screens/LobbyScreen';
 
 const p1 = toPlayerId('p1');
 const p2 = toPlayerId('p2');
@@ -61,6 +62,30 @@ describe('integrated gameplay guidance UI', () => {
 
     expect(publicPlayerStatus(state.players[0]!, state)).toEqual({ label: 'Claiming', tone: 'warn' });
     expect(publicPlayerStatus(state.players[1]!, state)).toEqual({ label: 'Can challenge', tone: 'warn' });
+  });
+
+
+  it('explains client connection errors instead of showing only waiting for sync', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LobbyScreen, {
+        roomCode: 'U9VGH',
+        roomLink: 'https://abhidya.github.io/Karachi-Coup/#/join?room=U9VGH',
+        currentScene: 'Waiting for sync',
+        players: [],
+        phaseLabel: 'Lobby',
+        turnOwnerName: 'Waiting',
+        mode: 'client',
+        connectionIssue: 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.',
+        onStartGame: () => undefined,
+        onResetRoom: () => undefined,
+        onRequestResync: () => undefined,
+        onLeaveRoom: () => undefined,
+        onOpenRules: () => undefined,
+      }),
+    );
+
+    expect(html).toContain('Could not reach the room host');
+    expect(html).toContain('Ask the host to keep their tab open');
   });
 
   it('renders table instruction, next step, action guidance, and response guidance together', () => {
