@@ -57,6 +57,16 @@ describe('validation', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('validation: rejects targeted actions against self', () => {
+    const state = turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], 7, 2);
+    const result = validateClientMessage(state, toPlayerId('p1'), {
+      type: 'DECLARE_ACTION',
+      actionType: 'FULL_BEIZZATI',
+      targetId: toPlayerId('p1'),
+    });
+    expect(result.ok).toBe(false);
+  });
+
   it('validation: rejects target action when target is eliminated', () => {
     const state = turnState([card('MALIK_SAAB'), card('BHAI')], []);
     const result = validateClientMessage(state, toPlayerId('p1'), {
@@ -138,6 +148,26 @@ describe('validation', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('validation: rejects Rishtedaar Help block from the actor', () => {
+    const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'RISHTEDAAR_HELP');
+    const result = validateClientMessage(declared, toPlayerId('p1'), { type: 'BLOCK', role: 'MALIK_SAAB' });
+    expect(result.ok).toBe(false);
+  });
+
+  it('validation: accepts PASS_BLOCK from the target during an initial targeted block window', () => {
+    const declared = declare(turnState3([card('BHAI'), card('MALIK_SAAB')], [card('MUMMA'), card('POLICE_WALA')], [card('MALIK_SAAB'), card('BHAI')], 5, 2, 2), 'BHAI_KA_SCENE', toPlayerId('p2'));
+    const afterChallenge = openBlockWindowAfterActionChallenge(declared);
+    const result = validateClientMessage(afterChallenge, toPlayerId('p2'), { type: 'PASS_BLOCK' });
+    expect(result.ok).toBe(true);
+  });
+
+  it('validation: rejects PASS_BLOCK from non-target during a targeted block window', () => {
+    const declared = declare(turnState3([card('BHAI'), card('MALIK_SAAB')], [card('MUMMA'), card('POLICE_WALA')], [card('MALIK_SAAB'), card('BHAI')], 5, 2, 2), 'BHAI_KA_SCENE', toPlayerId('p2'));
+    const afterChallenge = openBlockWindowAfterActionChallenge(declared);
+    const result = validateClientMessage(afterChallenge, toPlayerId('p3'), { type: 'PASS_BLOCK' });
+    expect(result.ok).toBe(false);
+  });
+
   it('validation: accepts Police Wala block against Police Wala Raid', () => {
     const declared = declare(turnState3([card('POLICE_WALA'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('MALIK_SAAB'), card('BHAI')]), 'POLICE_WALA_RAID', toPlayerId('p2'));
     const afterChallenge = openBlockWindowAfterActionChallenge(declared);
@@ -198,6 +228,16 @@ describe('validation', () => {
     const result = validateClientMessage(state, toPlayerId('p1'), {
       type: 'JUGAAD_RETURN',
       returnedConnectionIds: ['a', 'b'],
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('validation: rejects duplicate JUGAAD_RETURN card ids', () => {
+    const state = passChallenge(declare(turnState([card('ZARDAAR_CHOR'), card('MALIK_SAAB')], [card('MUMMA'), card('BHAI')]), 'ZARDAAR_JUGAAD'), toPlayerId('p2'));
+    const firstId = state.playersById[toPlayerId('p1')]!.hiddenConnections[0]!.id;
+    const result = validateClientMessage(state, toPlayerId('p1'), {
+      type: 'JUGAAD_RETURN',
+      returnedConnectionIds: [firstId, firstId],
     });
     expect(result.ok).toBe(false);
   });

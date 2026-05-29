@@ -1,5 +1,5 @@
 import { buildCurrentScene } from './sceneText';
-import { blockRolesByAction } from './rules';
+import { ACTION_CONFIG, blockRolesByAction } from './rules';
 import { labels } from './theme';
 import type {
   ActionType,
@@ -140,6 +140,11 @@ function buildPrivatePrompt(state: HostGameState, playerId: PlayerId): PrivatePr
   );
 }
 
+function availableActionTypes(rupees: number): ActionType[] {
+  if (rupees >= 10) return ['FULL_BEIZZATI'];
+  return (Object.keys(ACTION_CONFIG) as ActionType[]).filter((actionType) => ACTION_CONFIG[actionType].cost <= rupees);
+}
+
 export function toPublicGameState(state: HostGameState): PublicGameState {
   return {
     roomCode: state.roomCode,
@@ -179,7 +184,7 @@ export function toPrivatePlayerState(state: HostGameState, playerId: PlayerId): 
       state.phase === 'TURN_START' && state.activePlayerId === playerId && !player.eliminated
         ? forcedBeizzati
           ? ['FULL_BEIZZATI']
-          : ['CHAI_PAISA', 'RISHTEDAAR_HELP', 'KIRAYA_COLLECTION', 'POLICE_WALA_RAID', 'BHAI_KA_SCENE', 'ZARDAAR_JUGAAD', 'FULL_BEIZZATI']
+          : availableActionTypes(player.rupees)
         : [],
     prompt,
     pendingAction: state.pendingAction?.actorId === playerId ? state.pendingAction : null,
@@ -211,7 +216,5 @@ export function summarizePublicState(state: HostGameState): string {
 export function publicActionButtons(state: HostGameState, playerId: PlayerId): ActionType[] {
   const player = state.playersById[playerId];
   if (!player || player.eliminated || state.activePlayerId !== playerId || state.phase !== 'TURN_START') return [];
-  return player.rupees >= 10
-    ? ['FULL_BEIZZATI']
-    : ['CHAI_PAISA', 'RISHTEDAAR_HELP', 'KIRAYA_COLLECTION', 'POLICE_WALA_RAID', 'BHAI_KA_SCENE', 'ZARDAAR_JUGAAD', 'FULL_BEIZZATI'];
+  return availableActionTypes(player.rupees);
 }

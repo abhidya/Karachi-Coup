@@ -47,26 +47,40 @@ export async function createThreePlayerTable(browser: Browser) {
 }
 
 export async function createThreePlayerLobby(browser: Browser) {
-  const hostContext = await browser.newContext();
-  const playerOneContext = await browser.newContext();
-  const playerTwoContext = await browser.newContext();
-  const hostPage = await hostContext.newPage();
-  const playerOnePage = await playerOneContext.newPage();
-  const playerTwoPage = await playerTwoContext.newPage();
+  let lastError: unknown;
 
-  const roomCode = await createHostedRoom(hostPage, 'Host One');
-  await joinRoom(playerOnePage, roomCode, 'Ari');
-  await joinRoom(playerTwoPage, roomCode, 'Bea');
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const hostContext = await browser.newContext();
+    const playerOneContext = await browser.newContext();
+    const playerTwoContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+    const playerOnePage = await playerOneContext.newPage();
+    const playerTwoPage = await playerTwoContext.newPage();
 
-  const storageKey = hostStorageKey(roomCode);
-  await expect
-    .poll(async () => hostPage.evaluate((key) => window.localStorage.getItem(key), storageKey), { timeout: 30_000 })
-    .toContain('Ari');
-  await expect
-    .poll(async () => hostPage.evaluate((key) => window.localStorage.getItem(key), storageKey), { timeout: 30_000 })
-    .toContain('Bea');
+    try {
+      const roomCode = await createHostedRoom(hostPage, 'Host One');
+      const storageKey = hostStorageKey(roomCode);
 
-  return { hostContext, playerOneContext, playerTwoContext, hostPage, playerOnePage, playerTwoPage, roomCode };
+      await joinRoom(playerOnePage, roomCode, 'Ari');
+      await expect
+        .poll(async () => hostPage.evaluate((key) => window.localStorage.getItem(key), storageKey), { timeout: 12_000 })
+        .toContain('Ari');
+
+      await joinRoom(playerTwoPage, roomCode, 'Bea');
+      await expect
+        .poll(async () => hostPage.evaluate((key) => window.localStorage.getItem(key), storageKey), { timeout: 12_000 })
+        .toContain('Bea');
+
+      return { hostContext, playerOneContext, playerTwoContext, hostPage, playerOnePage, playerTwoPage, roomCode };
+    } catch (error) {
+      lastError = error;
+      await hostContext.close();
+      await playerOneContext.close();
+      await playerTwoContext.close();
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Unable to create a three-player PeerJS lobby.');
 }
 
 export async function activePlayerName(page: Page) {

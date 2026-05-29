@@ -18,6 +18,49 @@ async function selectFirstTarget(page: import('@playwright/test').Page) {
   return targetName;
 }
 
+function nextTurnName(name: string) {
+  if (name === 'Host One') return 'Ari';
+  if (name === 'Ari') return 'Bea';
+  return 'Host One';
+}
+
+async function fundActivePlayerForBhai(
+  activeName: string,
+  hostPage: import('@playwright/test').Page,
+  playerOnePage: import('@playwright/test').Page,
+  playerTwoPage: import('@playwright/test').Page,
+) {
+  let expectedTurnName = activeName;
+  for (let index = 0; index < 3; index += 1) {
+    const page = await pageForActivePlayer(expectedTurnName, hostPage, playerOnePage, playerTwoPage);
+    await page.getByTestId('action-button-CHAI_PAISA').click();
+    expectedTurnName = nextTurnName(expectedTurnName);
+    await waitForTurnName(hostPage, expectedTurnName);
+  }
+}
+
+async function passVisibleActionChallenges(pages: Array<import('@playwright/test').Page>) {
+  const passedPages = new Set<import('@playwright/test').Page>();
+  for (let round = 0; round < pages.length; round += 1) {
+    let passed = false;
+    for (const page of pages) {
+      if (passedPages.has(page)) continue;
+      const challengeButton = page.getByTestId('response-call-bakwaas');
+      try {
+        await expect(challengeButton).toBeVisible({ timeout: 1_500 });
+        await page.getByTestId('response-let-it-slide').click();
+        await expect(challengeButton).toHaveCount(0, { timeout: 5_000 });
+        passedPages.add(page);
+        passed = true;
+        break;
+      } catch {
+        // Try the next page.
+      }
+    }
+    if (!passed) return;
+  }
+}
+
 async function visiblePageWithTestId(testId: string, pages: Array<import('@playwright/test').Page>, timeoutMs = 2500) {
   for (const page of pages) {
     try {
@@ -119,6 +162,7 @@ test('gameplay: block prompt shows only legal Use Setting roles', async ({ brows
 test('gameplay: Bhai Ka Scene opens target picker', async ({ browser }) => {
   const { hostContext, playerOneContext, playerTwoContext, hostPage, playerOnePage, playerTwoPage } = await createThreePlayerGame(browser);
   const name = await activePlayerName(hostPage);
+  await fundActivePlayerForBhai(name, hostPage, playerOnePage, playerTwoPage);
   const activePage = await pageForActivePlayer(name, hostPage, playerOnePage, playerTwoPage);
 
   await activePage.getByTestId('action-button-BHAI_KA_SCENE').click();
@@ -132,10 +176,12 @@ test('gameplay: Bhai Ka Scene opens target picker', async ({ browser }) => {
 test('gameplay: Burn Connection modal requires explicit confirm', async ({ browser }) => {
   const { hostContext, hostPage, playerOneContext, playerTwoContext, playerOnePage, playerTwoPage } = await createThreePlayerGame(browser);
   const activeName = await activePlayerName(hostPage);
+  await fundActivePlayerForBhai(activeName, hostPage, playerOnePage, playerTwoPage);
   const activePage = await pageForActivePlayer(activeName, hostPage, playerOnePage, playerTwoPage);
 
   await activePage.getByTestId('action-button-BHAI_KA_SCENE').click();
   const targetName = await selectFirstTarget(activePage);
+  await passVisibleActionChallenges([hostPage, playerOnePage, playerTwoPage].filter((page) => page !== activePage));
   const responderPage = await pageForPlayerName(targetName, hostPage, playerOnePage, playerTwoPage);
   await expect(responderPage.getByTestId('response-block-MUMMA')).toBeVisible({ timeout: 10_000 });
   await expect(responderPage.getByTestId('response-let-it-slide')).toBeVisible();
@@ -151,7 +197,6 @@ test('gameplay: Burn Connection modal requires explicit confirm', async ({ brows
 test('gameplay: Full Beizzati opens target picker when affordable', async ({ browser }) => {
   const { hostContext, hostPage, playerOneContext, playerTwoContext, playerOnePage, playerTwoPage } = await createThreePlayerGame(browser);
 
-  const nextTurnName = (name: string) => (name === 'Host One' ? 'Ari' : name === 'Ari' ? 'Bea' : 'Host One');
   let expectedActiveName = await activePlayerName(hostPage);
 
   for (let index = 0; index < 15; index += 1) {
@@ -221,10 +266,12 @@ test('visual: opponent hidden Connections render as card backs, not role cards',
 test('visual: burned Connections render actual role art with burned overlay', async ({ browser }) => {
   const { hostContext, hostPage, playerOneContext, playerTwoContext, playerOnePage, playerTwoPage } = await createThreePlayerGame(browser);
   const activeName = await activePlayerName(hostPage);
+  await fundActivePlayerForBhai(activeName, hostPage, playerOnePage, playerTwoPage);
   const activePage = await pageForActivePlayer(activeName, hostPage, playerOnePage, playerTwoPage);
 
   await activePage.getByTestId('action-button-BHAI_KA_SCENE').click();
   const targetName = await selectFirstTarget(activePage);
+  await passVisibleActionChallenges([hostPage, playerOnePage, playerTwoPage].filter((page) => page !== activePage));
   const responderPage = await pageForPlayerName(targetName, hostPage, playerOnePage, playerTwoPage);
   await expect(responderPage.getByTestId('response-block-MUMMA')).toBeVisible({ timeout: 10_000 });
   await expect(responderPage.getByTestId('response-let-it-slide')).toBeVisible();

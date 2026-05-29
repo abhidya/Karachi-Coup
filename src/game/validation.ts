@@ -194,6 +194,9 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
     if (config.needsTarget && !isLegalTarget(state, message.targetId)) {
       return { ok: false, reason: 'That target is not legal.' };
     }
+    if (config.needsTarget && message.targetId === playerId) {
+      return { ok: false, reason: 'Players cannot target themselves.' };
+    }
     if (!config.needsTarget && message.targetId !== undefined && message.targetId !== null) {
       return { ok: false, reason: 'That action does not take a target.' };
     }
@@ -225,26 +228,46 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
     return { ok: true };
   }
   if (message.type === 'BLOCK') {
-    if (state.phase !== 'BLOCK_WINDOW' || !state.pendingAction) {
+    const pendingAction = state.pendingAction;
+    if (state.phase !== 'BLOCK_WINDOW' || !pendingAction) {
       return { ok: false, reason: 'Blocks are only legal during block windows.' };
     }
-    const required = blockRolesByAction[state.pendingAction.actionType] ?? [];
+    const actionType = pendingAction.actionType;
+    const required = blockRolesByAction[actionType] ?? [];
+    if (required.length === 0) {
+      return { ok: false, reason: 'That action cannot be blocked.' };
+    }
     if (required.length > 0 && !required.includes(message.role)) {
       return { ok: false, reason: 'Illegal block role.' };
     }
-    if (state.pendingAction.actionType === 'POLICE_WALA_RAID' || state.pendingAction.actionType === 'BHAI_KA_SCENE') {
-      if (state.pendingAction.targetId !== playerId) {
+    if (actionType === 'POLICE_WALA_RAID' || actionType === 'BHAI_KA_SCENE') {
+      if (pendingAction.targetId !== playerId) {
         return { ok: false, reason: 'Only the target may block that action.' };
       }
     }
-    if (state.pendingAction.actionType === 'RISHTEDAAR_HELP' && message.role !== 'MALIK_SAAB') {
+    if (actionType === 'RISHTEDAAR_HELP' && message.role !== 'MALIK_SAAB') {
       return { ok: false, reason: 'Only Malik Saab can block that action.' };
+    }
+    if (actionType === 'RISHTEDAAR_HELP' && pendingAction.actorId === playerId) {
+      return { ok: false, reason: 'Actor cannot block their own Rishtedaar Help.' };
     }
     return { ok: true };
   }
   if (message.type === 'PASS_BLOCK') {
-    if (state.phase !== 'BLOCK_WINDOW' || !state.pendingBlock) {
+    const pendingAction = state.pendingAction;
+    if (state.phase !== 'BLOCK_WINDOW' || !pendingAction) {
       return { ok: false, reason: 'No block window is open.' };
+    }
+    const actionType = pendingAction.actionType;
+    const required = blockRolesByAction[actionType] ?? [];
+    if (required.length === 0) {
+      return { ok: false, reason: 'That action cannot be blocked.' };
+    }
+    if (actionType === 'RISHTEDAAR_HELP' && pendingAction.actorId === playerId) {
+      return { ok: false, reason: 'Actor cannot pass their own block window.' };
+    }
+    if ((actionType === 'POLICE_WALA_RAID' || actionType === 'BHAI_KA_SCENE') && pendingAction.targetId !== playerId) {
+      return { ok: false, reason: 'Only the target may pass that block window.' };
     }
     return { ok: true };
   }
@@ -270,6 +293,9 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
     }
     if (message.returnedConnectionIds.length !== 2) {
       return { ok: false, reason: 'Exactly two cards must be returned.' };
+    }
+    if (new Set(message.returnedConnectionIds).size !== 2) {
+      return { ok: false, reason: 'Returned cards must be two unique cards.' };
     }
     const player = state.playersById[playerId];
     if (!player) {

@@ -71,7 +71,24 @@ describe('snapshots', () => {
     const state = turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]);
     const privateState = toPrivatePlayerState(state, toPlayerId('p1'));
     expect(privateState.availableActions).toContain('CHAI_PAISA');
-    expect(privateState.availableActions).toContain('FULL_BEIZZATI');
+    expect(privateState.availableActions).toContain('ZARDAAR_JUGAAD');
+    expect(privateState.availableActions).not.toContain('BHAI_KA_SCENE');
+    expect(privateState.availableActions).not.toContain('FULL_BEIZZATI');
+  });
+
+  it('snapshot: private state includes only affordable paid actions', () => {
+    const threeRupees = toPrivatePlayerState(
+      turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], 3, 2),
+      toPlayerId('p1'),
+    );
+    expect(threeRupees.availableActions).toContain('BHAI_KA_SCENE');
+    expect(threeRupees.availableActions).not.toContain('FULL_BEIZZATI');
+
+    const sevenRupees = toPrivatePlayerState(
+      turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], 7, 2),
+      toPlayerId('p1'),
+    );
+    expect(sevenRupees.availableActions).toContain('FULL_BEIZZATI');
   });
 
   it('snapshot: private state shows mandatory Full Beizzati as the only action when active player has 10 or more rupees', () => {

@@ -74,6 +74,18 @@ If the deployed URL is blank or stale, check the Actions logs and confirm `dist/
 5. Host creates the room and joins as Player 1 automatically. Other players join by room code. Keep the host device open because it owns the authoritative game state.
 6. Players take turns, bluff, call bakwaas, use setting, burn Connections, and try to be the last one standing.
 
+## Turn and action rules
+
+- Chai Paisa: take 1 Rupee. No Call Bakwaas and no Use Setting.
+- Rishtedaar Help: take 2 Rupees. Any non-actor may Use Setting with Malik Saab.
+- Kiraya Collection: claim Malik Saab and take 3 Rupees if nobody calls bakwaas successfully.
+- Police Wala Raid: claim Police Wala, choose a target, and steal up to 2 Rupees. Target may Use Setting with Police Wala or Zardaar Chor after challenges pass.
+- Bhai Ka Scene: costs 3 Rupees, claims Bhai, chooses a target, and makes that target burn a Connection if nobody blocks. Target may Use Setting with Mumma after challenges pass.
+- Zardaar Jugaad: claim Zardaar Chor, draw 2 temporary Connections, then return exactly 2 Connections.
+- Full Beizzati: costs 7 Rupees and forces a target to burn a Connection. At 10+ Rupees it is mandatory.
+
+The UI only shows actions the active player can currently afford. Challengeable action claims resolve through Call Bakwaas first; surviving target/block windows then show Use Setting prompts.
+
 ## Asset naming notes
 
 The app keeps image filenames behind `src/game/assets.ts` so components use semantic keys instead of repeated raw filenames.
@@ -101,6 +113,7 @@ npm run dev
 npm test
 npm run build
 npm run test:e2e
+npm run test:e2e:peer
 ```
 
 ## Important limitations
