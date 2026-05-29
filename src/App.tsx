@@ -425,17 +425,24 @@ export function App() {
   }, [routeRoomId]);
 
   useEffect(() => {
-    if (route !== 'home') return;
-
     const stored = readSessionStorage<StoredSession>(sessionStorageKey());
-    if (!stored || stored.mode === 'idle') return;
+    const storedMatchesRoute = Boolean(stored?.roomId && (!routeRoomId || stored.roomId === routeRoomId));
 
-    setDisplayName(stored.displayName);
-    setRoomId(stored.roomId);
-    setJoinCode(stored.roomId);
-    setMode(stored.mode);
-    navigate('lobby', stored.roomId);
-  }, [navigate, route]);
+    if (stored && stored.mode !== 'idle' && storedMatchesRoute) {
+      setDisplayName(stored.displayName);
+      setRoomId(stored.roomId);
+      setJoinCode(stored.roomId);
+      setMode(stored.mode);
+      if (route === 'home') {
+        navigate('lobby', stored.roomId);
+      }
+      return;
+    }
+
+    if ((route === 'lobby' || route === 'game') && routeRoomId && mode === 'idle') {
+      navigate('join', routeRoomId);
+    }
+  }, [mode, navigate, route, routeRoomId]);
 
   const activeSnapshot = mode === 'host' ? hostSnapshot : clientSnapshot;
   const publicState = activeSnapshot?.publicState ?? hostSnapshot?.publicState ?? clientSnapshot?.publicState ?? null;

@@ -31,4 +31,31 @@ test.describe('Karachi Coup shell', () => {
     await expect(page.getByText('Waiting for sync')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Request resync' })).toBeVisible();
   });
+
+  test('shared lobby/game deep links route new visitors to the join form', async ({ page }) => {
+    await page.goto('./#/lobby?room=U9VGH');
+    await expect(page).toHaveURL(/#\/join\?room=U9VGH/);
+    await expect(page.getByTestId('join-code-input')).toHaveValue('U9VGH');
+
+    await page.goto('./#/game?room=U9VGH');
+    await expect(page).toHaveURL(/#\/join\?room=U9VGH/);
+    await expect(page.getByTestId('join-submit-button')).toBeVisible();
+  });
+
+  test('shared room links ignore stale sessions from another room', async ({ page }) => {
+    await page.goto('./');
+    await page.evaluate(() => {
+      sessionStorage.setItem(
+        'karachi-coup:session',
+        JSON.stringify({
+          version: 1,
+          value: { mode: 'client', roomId: 'OLD12', displayName: 'Stale Player' },
+        }),
+      );
+    });
+
+    await page.goto('./#/lobby?room=U9VGH');
+    await expect(page).toHaveURL(/#\/join\?room=U9VGH/);
+    await expect(page.getByTestId('join-code-input')).toHaveValue('U9VGH');
+  });
 });
