@@ -1,10 +1,23 @@
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import ReactDOM, { type Root } from 'react-dom/client';
 import { App } from './App';
 import './styles.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+declare global {
+  interface Window {
+    __karachiCoupRoot?: Root;
+    __karachiCoupRendered?: boolean;
+  }
+}
+
+const container = document.getElementById('root');
+
+if (container && !window.__karachiCoupRendered) {
+  window.__karachiCoupRoot = window.__karachiCoupRoot ?? ReactDOM.createRoot(container);
+  window.__karachiCoupRendered = true;
+  window.__karachiCoupRoot.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}
