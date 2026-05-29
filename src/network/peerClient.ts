@@ -122,6 +122,7 @@ function peerErrorMessage(error: unknown, fallback: string): string {
 }
 
 const HOST_UNREACHABLE_MESSAGE = 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.';
+const HOST_SYNC_TIMEOUT_MS = 12_000;
 
 function isServerMessage(value: unknown): value is ServerMessage {
   return Boolean(value && typeof value === 'object' && typeof (value as ServerMessage).type === 'string');
@@ -182,6 +183,33 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     restored: Boolean(identity.playerId),
   };
   let destroyed = false;
+  let syncTimeout: number | null = null;
+
+  const clearSyncTimeout = () => {
+    if (syncTimeout) {
+      window.clearTimeout(syncTimeout);
+      syncTimeout = null;
+    }
+  };
+
+  const markHostUnreachable = () => {
+    if (destroyed || snapshot.phase === 'synced') {
+      return;
+    }
+
+    snapshot = {
+      ...snapshot,
+      phase: 'error',
+      error: HOST_UNREACHABLE_MESSAGE,
+      lastMessage: 'client:host-timeout',
+    };
+    emit();
+  };
+
+  const startSyncTimeout = () => {
+    clearSyncTimeout();
+    syncTimeout = window.setTimeout(markHostUnreachable, HOST_SYNC_TIMEOUT_MS);
+  };
 
   const emit = () => {
     listeners.forEach((listener) => listener(snapshot));
@@ -201,6 +229,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     connection.send(joinMessage);
     const resyncMessage: ClientResyncMessage = { type: 'REQUEST_RESYNC' };
     connection.send(resyncMessage);
+    startSyncTimeout();
   };
 
   const applyServerMessage = (message: unknown) => {
@@ -216,6 +245,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     }
 
     if (isWelcomeMessage(message)) {
+      clearSyncTimeout();
       snapshot = {
         ...snapshot,
         phase: 'joined',
@@ -231,6 +261,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     }
 
     if (isPublicMessage(message)) {
+      clearSyncTimeout();
       snapshot = {
         ...snapshot,
         phase: snapshot.playerId ? 'synced' : 'joined',
@@ -243,6 +274,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     }
 
     if (isPrivateMessage(message)) {
+      clearSyncTimeout();
       snapshot = {
         ...snapshot,
         phase: 'synced',
@@ -255,6 +287,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     }
 
     if (isErrorMessage(message)) {
+      clearSyncTimeout();
       snapshot = {
         ...snapshot,
         phase: 'error',
@@ -351,6 +384,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     });
 
     connection.on('close', () => {
+      clearSyncTimeout();
       snapshot = {
         ...snapshot,
         phase: 'closed',
@@ -361,6 +395,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     });
 
     connection.on('error', (error: unknown) => {
+      clearSyncTimeout();
       snapshot = {
         ...snapshot,
         phase: 'error',
@@ -372,6 +407,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
   });
 
   peer.on('error', (error: unknown) => {
+    clearSyncTimeout();
     snapshot = {
       ...snapshot,
       phase: 'error',
@@ -404,6 +440,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
       if (connection?.open) {
         const message: ClientResyncMessage = { type: 'REQUEST_RESYNC' };
         connection.send(message);
+        startSyncTimeout();
         snapshot = {
           ...snapshot,
           lastMessage: 'client:resync',
@@ -413,6 +450,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     },
     destroy() {
       destroyed = true;
+      clearSyncTimeout();
       connection?.close();
       peer?.destroy();
       snapshot = {
