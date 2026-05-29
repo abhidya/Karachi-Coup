@@ -9,12 +9,14 @@ type ResponsePanelProps = {
   onPassChallenge: () => void;
   onPassBlock: () => void;
   onBlockRole: (role: Role) => void;
+  guidance?: string;
 };
 
-export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBlock, onBlockRole }: ResponsePanelProps) {
+export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBlock, onBlockRole, guidance }: ResponsePanelProps) {
   if (!prompt) {
     return (
       <Panel eyebrow="Response" title="Waiting for the table">
+        {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
         <p className="muted">{rulesGuide.peerRules[0]}</p>
       </Panel>
     );
@@ -24,6 +26,7 @@ export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBloc
     return (
       <Panel eyebrow="Response" title="Burn Connection">
         <Stack gap="xs">
+          {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
           <p className="muted">{prompt.message}</p>
           <p className="muted">Choose a hidden slot in the modal. You will not see the character card before confirming.</p>
         </Stack>
@@ -34,7 +37,10 @@ export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBloc
   if (prompt.type === 'JUGAAD_RETURN') {
     return (
       <Panel eyebrow="Response" title="Zardaar Jugaad">
-        <p className="muted">{prompt.message}</p>
+        <Stack gap="xs">
+          {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
+          <p className="muted">{prompt.message}</p>
+        </Stack>
       </Panel>
     );
   }
@@ -43,6 +49,7 @@ export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBloc
     return (
       <Panel eyebrow="Response" title="Call Bakwaas?">
         <Stack gap="sm">
+          {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
           <p className="muted">{prompt.message}</p>
           <p className="muted">
             Call Bakwaas if you think they do not have {labels.roleTheme[prompt.claimedRole].label}. If you are wrong, you burn; if you are right, they burn and the scene stops.
@@ -66,6 +73,7 @@ export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBloc
     return (
       <Panel eyebrow="Response" title="Use Setting?">
         <Stack gap="sm">
+          {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
           <p className="muted">{prompt.message}</p>
           <p className="muted">Use Setting claims a blocker role. If someone calls Bakwaas and you cannot prove it, you burn one Connection.</p>
           <Row>
@@ -91,6 +99,7 @@ export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBloc
       title={prompt.type === 'CHALLENGE_BLOCK' ? 'Call Bakwaas on the block?' : 'Waiting for the table'}
     >
       <Stack gap="sm">
+        {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
         <p className="muted">{prompt.message}</p>
         {prompt.type === 'CHALLENGE_BLOCK' ? (
           <>
