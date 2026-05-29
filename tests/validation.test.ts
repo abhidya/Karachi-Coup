@@ -206,6 +206,16 @@ describe('validation', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('validation: rejects CHOOSE_CONNECTION_TO_BURN from a non-burning player even for their own hidden Connection', () => {
+    const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], 7, 2), 'FULL_BEIZZATI', toPlayerId('p2'));
+    const nonBurningConnectionId = declared.playersById[toPlayerId('p1')]!.hiddenConnections[0]!.id;
+    const result = validateClientMessage(declared, toPlayerId('p1'), {
+      type: 'CHOOSE_CONNECTION_TO_BURN',
+      connectionId: nonBurningConnectionId,
+    });
+    expect(result.ok).toBe(false);
+  });
+
   it('validation: rejects JUGAAD_RETURN when no Jugaad return is pending', () => {
     const result = validateClientMessage(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), toPlayerId('p1'), {
       type: 'JUGAAD_RETURN',

@@ -213,6 +213,18 @@ describe('snapshots', () => {
     expect(notBurning.prompt).toBeNull();
   });
 
+  it('private prompt: burn choices carry no card identities or ids', () => {
+    const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'KIRAYA_COLLECTION');
+    const challenged = reducer(declared, { type: 'CHALLENGE', challengerId: toPlayerId('p2') });
+    const burning = toPrivatePlayerState(challenged, toPlayerId('p2'));
+
+    expect(burning.prompt).toEqual({
+      type: 'BURN_CONNECTION',
+      playerId: toPlayerId('p2'),
+      message: 'Bob must Burn one Connection.',
+    });
+  });
+
   it('private prompt: burn appears only for burning player', () => {
     const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'KIRAYA_COLLECTION');
     const challenged = reducer(declared, { type: 'CHALLENGE', challengerId: toPlayerId('p2') });

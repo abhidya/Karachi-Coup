@@ -18,6 +18,8 @@ describe('burn connection UI privacy', () => {
     expect(html).toContain('Hidden Connection 1');
     expect(html).toContain('Hidden Connection 2');
     expect(html).toContain('connection-back.png');
+    expect(html).not.toContain('c1');
+    expect(html).not.toContain('c2');
     expect(html).not.toContain('Malik Saab');
     expect(html).not.toContain('Bhai');
     expect(html).not.toContain('malik-saab.png');
@@ -41,6 +43,8 @@ describe('burn connection UI privacy', () => {
 
     expect(html).toContain('Hidden Connection 1');
     expect(html).toContain('Hidden Connection 2');
+    expect(html).not.toContain('c1');
+    expect(html).not.toContain('c2');
     expect(html).not.toContain('Malik Saab');
     expect(html).not.toContain('Bhai');
   });
