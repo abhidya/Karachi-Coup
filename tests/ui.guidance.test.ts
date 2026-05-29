@@ -151,5 +151,13 @@ describe('integrated gameplay guidance UI', () => {
     expect(html).toContain('Your turn. Pick one move.');
     expect(html).toContain('Next: Pick a move. Target if asked.');
     expect(html).toContain('Tap a move card.');
+    expect(html).toContain('Chai Paisa');
+    expect(html).toContain('Rishtedaar Help');
+    expect(html).toContain('Bhai Ka Scene');
+    expect(html).toContain('Full Beizzati');
+    expect(html).toContain('Locked: need 3₹');
+    expect(html).toContain('Locked: need 7₹');
+    expect(html).toContain('data-testid="action-button-BHAI_KA_SCENE"');
+    expect(html).toContain('data-testid="action-button-FULL_BEIZZATI"');
   });
 });

@@ -92,6 +92,7 @@ export function GameScreen({
           nextStep={nextStep}
           activePlayerName={activePlayerName}
           actions={privateState?.availableActions ?? []}
+          currentRupees={privateState?.rupees}
           prompt={prompt}
           onActionClick={onActionClick}
           forcedActionType={forcedActionType}

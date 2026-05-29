@@ -1,7 +1,7 @@
 import { Button, Panel, Row, Stack } from '../../components/Ui';
 import { ACTION_CONFIG } from '../../game/rules';
 import { labels, rulesGuide } from '../../game/theme';
-import type { ActionType, PrivatePrompt, Role } from '../../game/types';
+import { ACTION_TYPES, type ActionType, type PrivatePrompt, type Role } from '../../game/types';
 import { actionMetaParts } from '../gameGuidance';
 import { ACTION_IMAGE_BY_ACTION, RESPONSE_IMAGE_BY_LABEL } from '../imageAssets';
 import { ConnectionCard } from './ConnectionCard';
@@ -14,6 +14,7 @@ type PlayerDecisionPanelProps = {
   nextStep: string;
   activePlayerName: string | null;
   actions: ActionType[];
+  currentRupees?: number;
   prompt: PrivatePrompt;
   onActionClick?: (actionType: ActionType) => void;
   forcedActionType?: ActionType | null;
@@ -47,6 +48,13 @@ function decisionTitle(prompt: PrivatePrompt, actions: ActionType[]) {
   return 'Watch the table';
 }
 
+function lockedMoveReason(actionType: ActionType, currentRupees: number | undefined, forcedActionType: ActionType | null | undefined) {
+  if (forcedActionType && forcedActionType !== actionType) return 'Locked: Full Beizzati required';
+  const cost = ACTION_CONFIG[actionType].cost;
+  if (typeof currentRupees === 'number' && currentRupees < cost) return `Locked: need ${cost}₹`;
+  return 'Locked right now';
+}
+
 function primaryLabel(prompt: PrivatePrompt, actions: ActionType[]) {
   if (hasResponseChoice(prompt)) return 'Choose a reply';
   if (prompt?.type === 'BURN_CONNECTION') return 'Choose a hidden slot in the popup';
@@ -63,6 +71,7 @@ export function PlayerDecisionPanel({
   nextStep,
   activePlayerName,
   actions,
+  currentRupees,
   prompt,
   onActionClick,
   forcedActionType,
@@ -75,6 +84,8 @@ export function PlayerDecisionPanel({
   onOpenRules,
 }: PlayerDecisionPanelProps) {
   const needsResponse = hasResponseChoice(prompt) || prompt?.type === 'BURN_CONNECTION' || prompt?.type === 'JUGAAD_RETURN';
+  const availableActions = new Set(actions);
+  const moveCatalog = ACTION_TYPES;
 
   return (
     <Panel eyebrow={phaseLabel} title={decisionTitle(prompt, actions)} className="player-decision-panel player-decision-panel--simple">
@@ -114,22 +125,27 @@ export function PlayerDecisionPanel({
               {actionGuidance ? <p className="guidance-copy guidance-copy--simple" data-testid="action-guidance">{actionGuidance}</p> : null}
               {forcedActionType ? <p className="muted">10+ Rupees: Full Beizzati is mandatory.</p> : null}
               <div className="action-card-grid" aria-label="Available moves">
-                {actions.map((actionType) => (
-                  <ConnectionCard
-                    key={actionType}
-                    src={ACTION_IMAGE_BY_ACTION[actionType]}
-                    title={labels.actionLabels[actionType]}
-                    subtitle={
-                      <>
-                        <span>{actionSummary(actionType) || (ACTION_CONFIG[actionType].challengeable ? 'Bakwaas possible' : 'No challenge')}</span>
-                        <span className="art-card__meta">{actionMeta(actionType)}</span>
-                      </>
-                    }
-                    active={forcedActionType === actionType}
-                    onClick={onActionClick ? () => onActionClick(actionType) : undefined}
-                    dataTestId={`action-button-${actionType}`}
-                  />
-                ))}
+                {moveCatalog.map((actionType) => {
+                  const isAvailable = availableActions.has(actionType);
+                  return (
+                    <ConnectionCard
+                      key={actionType}
+                      src={ACTION_IMAGE_BY_ACTION[actionType]}
+                      title={labels.actionLabels[actionType]}
+                      subtitle={
+                        <>
+                          <span>{isAvailable ? actionSummary(actionType) || (ACTION_CONFIG[actionType].challengeable ? 'Bakwaas possible' : 'No challenge') : lockedMoveReason(actionType, currentRupees, forcedActionType)}</span>
+                          <span className="art-card__meta">{actionMeta(actionType)}</span>
+                        </>
+                      }
+                      tone={isAvailable ? 'neutral' : 'warn'}
+                      active={forcedActionType === actionType}
+                      disabled={!isAvailable}
+                      onClick={isAvailable && onActionClick ? () => onActionClick(actionType) : undefined}
+                      dataTestId={`action-button-${actionType}`}
+                    />
+                  );
+                })}
               </div>
             </section>
           </div>

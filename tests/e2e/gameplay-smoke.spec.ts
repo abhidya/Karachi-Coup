@@ -83,6 +83,17 @@ test('visual: game screen shows current scene, your move, private hand, public t
   await expect(activePage.getByTestId('private-panel')).toBeVisible();
   await expect(activePage.getByTestId('public-player-table')).toBeVisible();
   await expect(activePage.getByTestId('action-log')).toBeVisible();
+  await expect(activePage.getByTestId('action-button-CHAI_PAISA')).toBeVisible();
+  await expect(activePage.getByTestId('action-button-RISHTEDAAR_HELP')).toBeVisible();
+  await expect(activePage.getByTestId('action-button-KIRAYA_COLLECTION')).toBeVisible();
+  await expect(activePage.getByTestId('action-button-POLICE_WALA_RAID')).toBeVisible();
+  await expect(activePage.getByTestId('action-button-ZARDAAR_JUGAAD')).toBeVisible();
+  await expect(activePage.getByTestId('action-button-BHAI_KA_SCENE')).toBeVisible();
+  await expect(activePage.getByTestId('action-button-BHAI_KA_SCENE')).toBeDisabled();
+  await expect(activePage.getByTestId('action-button-BHAI_KA_SCENE')).toContainText('Locked: need 3₹');
+  await expect(activePage.getByTestId('action-button-FULL_BEIZZATI')).toBeVisible();
+  await expect(activePage.getByTestId('action-button-FULL_BEIZZATI')).toBeDisabled();
+  await expect(activePage.getByTestId('action-button-FULL_BEIZZATI')).toContainText('Locked: need 7₹');
 
   await hostContext.close();
   await playerOneContext.close();
