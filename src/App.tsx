@@ -428,6 +428,15 @@ export function App() {
     const stored = readSessionStorage<StoredSession>(sessionStorageKey());
     const storedMatchesRoute = Boolean(stored?.roomId && (!routeRoomId || stored.roomId === routeRoomId));
 
+    if ((route === 'lobby' || route === 'game') && routeRoomId && stored?.roomId && stored.roomId !== routeRoomId) {
+      setMode('idle');
+      setRoomId(routeRoomId);
+      setJoinCode(routeRoomId);
+      setHostPlayerId(null);
+      navigate('join', routeRoomId);
+      return;
+    }
+
     if (stored && stored.mode !== 'idle' && storedMatchesRoute) {
       setDisplayName(stored.displayName);
       setRoomId(stored.roomId);
@@ -644,6 +653,7 @@ export function App() {
             onCopyRoomLink={copyRoomLink}
             onStartGame={startGame}
             onResetRoom={resetRoom}
+            onCreateRoom={createRoom}
             onOpenRules={() => setShowRules(true)}
           />
         ) : null}
@@ -655,7 +665,7 @@ export function App() {
             onJoinCodeChange={(value) => setJoinCode(normalizeRoomCode(value))}
             onDisplayNameChange={setDisplayName}
             onJoinRoom={joinRoom}
-            onGoHost={() => navigate('host')}
+            onCreateRoom={createRoom}
             onRequestResync={requestResync}
             clientStatus={clientStatus}
             connectionIssue={connectionIssue}

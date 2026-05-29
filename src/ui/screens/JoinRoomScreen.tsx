@@ -6,7 +6,7 @@ type JoinRoomScreenProps = {
   onJoinCodeChange: (value: string) => void;
   onDisplayNameChange: (value: string) => void;
   onJoinRoom: () => void;
-  onGoHost: () => void;
+  onCreateRoom: () => void;
   onRequestResync: () => void;
   clientStatus: string;
   connectionIssue?: string | null;
@@ -19,7 +19,7 @@ export function JoinRoomScreen({
   onJoinCodeChange,
   onDisplayNameChange,
   onJoinRoom,
-  onGoHost,
+  onCreateRoom,
   onRequestResync,
   clientStatus,
   connectionIssue,
@@ -28,13 +28,14 @@ export function JoinRoomScreen({
   return (
     <Stack gap="lg">
       <section className="hero-grid">
-        <Panel eyebrow="Join room" title="Enter a room code">
+        <Panel eyebrow="Join room" title="Enter your friend's room code">
           <Stack gap="lg">
             <Field label="Room code" value={joinCode} onChange={onJoinCodeChange} placeholder="AB12C" inputMode="text" inputTestId="join-code-input" />
             <Field label="Your name" value={displayName} onChange={onDisplayNameChange} placeholder="Player name" inputTestId="display-name-input" />
+            <p className="muted">Joining needs an active host. If you want to start the table on this device, create a new room instead.</p>
             <Row>
               <Button onClick={onJoinRoom} data-testid="join-submit-button">Join room</Button>
-              <Button variant="secondary" onClick={onGoHost}>Host instead</Button>
+              <Button variant="secondary" onClick={onCreateRoom} data-testid="join-create-room-button">Create new room instead</Button>
             </Row>
           </Stack>
         </Panel>

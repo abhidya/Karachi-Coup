@@ -16,13 +16,13 @@ export function HomeScreen({ displayName, onDisplayNameChange, onCreateRoom, onJ
     <Stack gap="lg">
       <section className="hero-grid home-hero">
         <Panel
-          eyebrow="Start here"
+          eyebrow="Step 1"
           title={
             <span data-testid="home-title" className="home-title">
-              Karachi Coup
+              Enter your table name
             </span>
           }
-          footer={<img className="badge-icon" src={GAME_ASSETS.badges.currentScene} alt="Current scene" />}
+          footer={<img className="badge-icon" src={GAME_ASSETS.badges.host} alt="Choose host or join" />}
         >
           <Stack gap="md">
             <p className="home-tagline">Bluff. Setting. Rupees. Full Beizzati.</p>
@@ -34,21 +34,21 @@ export function HomeScreen({ displayName, onDisplayNameChange, onCreateRoom, onJ
               inputTestId="display-name-input"
             />
             <p className="muted">
-              Create a room and play as Player 1. Friends join by room code. Hidden Connections stay private.
+              Type the name friends should see, then choose a path: create a room if this device will host, or join with a code from a friend.
             </p>
             <div className="home-banner" style={{ backgroundImage: `linear-gradient(135deg, rgba(6, 10, 18, 0.72), rgba(6, 10, 18, 0.42)), url(${GAME_ASSETS.backgrounds.marketWall})` }}>
-              <strong>What you do here</strong>
-              <p>Call Bakwaas. Use Setting. Burn Connections. Keep your Rupees.</p>
+              <strong>What happens after this</strong>
+              <p>Create Room makes you Player 1 and shows a share code. Join Room asks for a friend's code.</p>
             </div>
           </Stack>
         </Panel>
 
-        <Panel eyebrow="How it works" title="3 simple moves">
+        <Panel eyebrow="Step 2" title="Choose your path">
           <Stack gap="sm">
             <ConnectionCard
               src={GAME_ASSETS.badges.host}
               title="Create Room"
-              subtitle="Host the table and share the code"
+              subtitle="Start a new table, become Player 1, then share the room code"
               layout="compact"
               onClick={onCreateRoom}
               dataTestId="create-room-button"
@@ -56,7 +56,7 @@ export function HomeScreen({ displayName, onDisplayNameChange, onCreateRoom, onJ
             <ConnectionCard
               src={GAME_ASSETS.cards.back}
               title="Join Room"
-              subtitle="Enter a room code and your name"
+              subtitle="Use a room code from a friend who already created the table"
               layout="compact"
               onClick={onJoinRoom}
               dataTestId="join-room-button"

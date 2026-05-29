@@ -9,7 +9,7 @@ test.describe('join link', () => {
   test('join link: opening shared room link lands on JoinRoomScreen', async ({ page }) => {
     await page.goto('./#/join?room=U9UPH');
 
-    await expect(page.getByText('Enter a room code')).toBeVisible();
+    await expect(page.getByText("Enter your friend's room code")).toBeVisible();
     await expect(page.getByTestId('join-submit-button')).toBeVisible();
   });
 

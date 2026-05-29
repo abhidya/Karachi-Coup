@@ -11,6 +11,7 @@ type HostLobbyScreenProps = {
   onCopyRoomLink: () => void;
   onStartGame: () => void;
   onResetRoom: () => void;
+  onCreateRoom: () => void;
   onOpenRules: () => void;
 };
 
@@ -23,8 +24,11 @@ export function HostLobbyScreen({
   onCopyRoomLink,
   onStartGame,
   onResetRoom,
+  onCreateRoom,
   onOpenRules,
 }: HostLobbyScreenProps) {
+  const hasRoom = Boolean(roomCode);
+
   return (
     <Stack gap="lg">
       <section className="hero-grid">
@@ -32,19 +36,27 @@ export function HostLobbyScreen({
           <Stack gap="md">
             <img className="lobby-hero" src={GAME_ASSETS.lobby.hostHero} alt="Host lobby" />
             <p className="guidance-copy" data-testid="host-lobby-guidance">
-              Share this room code, wait for at least 2 players, then start. Keep this host tab open; it runs the table and validates every move.
+              {hasRoom
+                ? 'Share this room code, wait for at least 2 players, then start. Keep this host tab open; it runs the table and validates every move.'
+                : 'No room exists yet. Create a room here to become Player 1, then share the generated code with friends.'}
             </p>
             <div className="room-code-card" data-testid="room-code">
               <span className="eyebrow">Room code</span>
-              <strong>{roomCode || 'Waiting for create room'}</strong>
+              <strong>{roomCode || 'No room yet'}</strong>
             </div>
             <p className="mono" data-testid="room-link">
-              {roomLink || 'Create a room first'}
+              {roomLink || 'Create a room to generate a join link.'}
             </p>
             <Row>
-              <Button variant="secondary" onClick={onCopyRoomLink} data-testid="copy-room-link">
-                Copy link
-              </Button>
+              {hasRoom ? (
+                <Button variant="secondary" onClick={onCopyRoomLink} data-testid="copy-room-link">
+                  Copy link
+                </Button>
+              ) : (
+                <Button onClick={onCreateRoom} data-testid="host-create-room-button">
+                  Create room
+                </Button>
+              )}
               <Button variant="ghost" onClick={onOpenRules}>
                 Quick rules
               </Button>
@@ -59,10 +71,10 @@ export function HostLobbyScreen({
                 {hostStatus}
               </Pill>
             </Row>
-            <p className="muted">You are Player 1 and the room host. Keep this device open so every player stays synced.</p>
-            <p className="muted">{canStart ? 'Ready: enough players are seated.' : 'Waiting: at least 2 players are needed before Start game unlocks.'}</p>
+            <p className="muted">{hasRoom ? 'You are Player 1 and the room host. Keep this device open so every player stays synced.' : 'Create a room before inviting players or starting the game.'}</p>
+            <p className="muted">{hasRoom ? (canStart ? 'Ready: enough players are seated.' : 'Waiting: at least 2 players are needed before Start game unlocks.') : 'Start game unlocks after a room exists and enough players join.'}</p>
             <Row>
-              <Button onClick={onStartGame} disabled={!canStart} data-testid="start-game-button">
+              <Button onClick={onStartGame} disabled={!hasRoom || !canStart} data-testid="start-game-button">
                 Start game
               </Button>
               <Button variant="ghost" onClick={onResetRoom} data-testid="reset-room-button">
