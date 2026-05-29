@@ -4,6 +4,7 @@ import { labels, rulesGuide } from '../../game/theme';
 import type { ActionType } from '../../game/types';
 import { ConnectionCard } from './ConnectionCard';
 import { ACTION_IMAGE_BY_ACTION } from '../imageAssets';
+import { actionMetaParts } from '../gameGuidance';
 
 type ActionPanelProps = {
   actions: ActionType[];
@@ -17,13 +18,7 @@ function actionSummary(actionType: ActionType) {
 }
 
 function actionMeta(actionType: ActionType) {
-  const config = ACTION_CONFIG[actionType];
-  const parts = [`Cost ${config.cost}₹`];
-  parts.push(config.needsTarget ? 'Choose a target' : 'No target');
-  parts.push(config.claimedRole ? `Claims ${labels.roleTheme[config.claimedRole].label}` : 'No role claim');
-  parts.push(config.challengeable ? 'Bakwaas allowed' : 'No Bakwaas');
-  parts.push(config.blockRoles.length ? `Blocked by ${config.blockRoles.map((role) => labels.roleTheme[role].label).join(' / ')}` : 'No Setting block');
-  return parts.join(' · ');
+  return actionMetaParts(actionType).join(' · ');
 }
 
 export function ActionPanel({ actions, onActionClick, forcedActionType, guidance }: ActionPanelProps) {
