@@ -36,6 +36,11 @@ export function LobbyScreen({
       <section className="hero-grid">
         <Panel eyebrow="Room" title="Live snapshot">
           <Stack gap="sm">
+            <p className="guidance-copy" data-testid="lobby-guidance">
+              {mode === 'host'
+                ? 'Host view: start when everyone is listed and ready. Keep this tab open during play.'
+                : 'Player view: wait here until the host starts. If your hand does not appear after start, request a resync.'}
+            </p>
             <Row>
               <Pill tone="neutral">Room {roomCode || '—'}</Pill>
               <Pill tone="neutral">Turn {turnOwnerName || 'Waiting'}</Pill>

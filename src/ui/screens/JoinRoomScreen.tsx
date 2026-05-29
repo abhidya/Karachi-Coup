@@ -38,7 +38,9 @@ export function JoinRoomScreen({
         </Panel>
         <Panel eyebrow="Connection" title="Client status">
           <Stack gap="sm">
-            <p className="muted">Waiting for sync</p>
+            <p className="guidance-copy">
+              After joining, this panel confirms whether the host found you, synced your private hand, and assigned your seat.
+            </p>
             <p data-testid="client-status">{clientStatus}</p>
             <p data-testid="private-player-id">Player id: {clientPlayerId || 'Unassigned'}</p>
             <Row>

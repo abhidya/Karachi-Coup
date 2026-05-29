@@ -672,6 +672,7 @@ export function App() {
           <GameScreen
             currentScene={publicState?.currentScene ?? 'Waiting for sync'}
             phaseLabel={gamePhaseLabel(publicState?.phase ?? 'LOBBY')}
+            publicState={publicState}
             tableInstruction={gameplayGuide.instruction}
             waitingContext={gameplayGuide.waitingContext}
             nextStep={gameplayGuide.nextStep}

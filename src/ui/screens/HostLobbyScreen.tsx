@@ -31,6 +31,9 @@ export function HostLobbyScreen({
         <Panel eyebrow="Host room" title="Invite players">
           <Stack gap="md">
             <img className="lobby-hero" src={GAME_ASSETS.lobby.hostHero} alt="Host lobby" />
+            <p className="guidance-copy" data-testid="host-lobby-guidance">
+              Share this room code, wait for at least 2 players, then start. Keep this host tab open; it runs the table and validates every move.
+            </p>
             <div className="room-code-card" data-testid="room-code">
               <span className="eyebrow">Room code</span>
               <strong>{roomCode || 'Waiting for create room'}</strong>
@@ -56,7 +59,8 @@ export function HostLobbyScreen({
                 {hostStatus}
               </Pill>
             </Row>
-            <p className="muted">You are Player 1 and the room host. Keep this device open.</p>
+            <p className="muted">You are Player 1 and the room host. Keep this device open so every player stays synced.</p>
+            <p className="muted">{canStart ? 'Ready: enough players are seated.' : 'Waiting: at least 2 players are needed before Start game unlocks.'}</p>
             <Row>
               <Button onClick={onStartGame} disabled={!canStart} data-testid="start-game-button">
                 Start game

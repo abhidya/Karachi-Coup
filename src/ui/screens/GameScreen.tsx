@@ -1,7 +1,7 @@
 import { Button, Panel, Row, Stack } from '../../components/Ui';
 import { GAME_ASSETS } from '../../game/assets';
 import { labels } from '../../game/theme';
-import type { ActionType, GameLogEntry, PlayerPublicState, PrivatePlayerState, PrivatePrompt, Role } from '../../game/types';
+import type { ActionType, GameLogEntry, PlayerPublicState, PrivatePlayerState, PrivatePrompt, PublicGameState, Role } from '../../game/types';
 import { ActionLog } from '../components/ActionLog';
 import { ActionPanel } from '../components/ActionPanel';
 import { BurnConnectionModal } from '../components/BurnConnectionModal';
@@ -16,6 +16,12 @@ import { isTargetedAction } from '../actionRouting';
 type GameScreenProps = {
   currentScene: string;
   phaseLabel: string;
+  publicState: PublicGameState | null;
+  tableInstruction: string;
+  waitingContext: string;
+  nextStep: string;
+  actionGuidance: string;
+  responseGuidance: string;
   publicPlayers: PlayerPublicState[];
   activePlayerName: string | null;
   privateState: PrivatePlayerState | null;
@@ -45,6 +51,12 @@ type GameScreenProps = {
 export function GameScreen({
   currentScene,
   phaseLabel,
+  publicState,
+  tableInstruction,
+  waitingContext,
+  nextStep,
+  actionGuidance,
+  responseGuidance,
   publicPlayers,
   activePlayerName,
   privateState,
@@ -75,10 +87,12 @@ export function GameScreen({
       <section className="scene-banner panel panel--banner">
         <Row align="center" wrap>
           <img className="badge-icon badge-icon--large" src={GAME_ASSETS.badges.currentScene} alt="Current scene" />
-          <div>
+          <div className="scene-banner__copy">
             <p className="eyebrow">{phaseLabel}</p>
-            <h2 data-testid="current-scene">{currentScene}</h2>
-            <p className="muted">Turn: <strong data-testid="active-player-name">{activePlayerName ?? 'Waiting'}</strong></p>
+            <h2 data-testid="current-scene">{tableInstruction}</h2>
+            <p className="scene-banner__detail" data-testid="table-instruction">{waitingContext}</p>
+            <p className="muted" data-testid="table-next-step">Next: {nextStep}</p>
+            <p className="muted">Turn: <strong data-testid="active-player-name">{activePlayerName ?? 'Waiting'}</strong> · Scene: {currentScene}</p>
           </div>
           <div className="scene-banner__actions">
             <Button variant="secondary" onClick={onOpenRules}>
@@ -105,14 +119,19 @@ export function GameScreen({
             <p>Join a room to see your private snapshot.</p>
           </Panel>
         )}
-        <ActionPanel actions={privateState?.availableActions ?? []} onActionClick={onActionClick} forcedActionType={forcedActionType} />
+        <ActionPanel
+          actions={privateState?.availableActions ?? []}
+          onActionClick={onActionClick}
+          forcedActionType={forcedActionType}
+          guidance={actionGuidance}
+        />
       </section>
 
       <div
         className="table-surface"
         style={{ backgroundImage: `linear-gradient(180deg, rgba(4, 8, 16, 0.72), rgba(4, 8, 16, 0.92)), url(${GAME_ASSETS.backgrounds.darkTable})` }}
       >
-        <PublicPlayerTable currentScene={currentScene} players={publicPlayers} />
+        <PublicPlayerTable currentScene={currentScene} players={publicPlayers} publicState={publicState} />
       </div>
 
       <section className="hero-grid table-surface table-surface--log">
@@ -122,6 +141,7 @@ export function GameScreen({
           onPassChallenge={onPassChallenge}
           onPassBlock={onPassBlock}
           onBlockRole={onChooseBlockRole}
+          guidance={responseGuidance}
         />
         <ActionLog entries={publicLog} />
       </section>

@@ -1,15 +1,17 @@
 import { Panel, Pill, Row, Stack } from '../../components/Ui';
 import { GAME_ASSETS } from '../../game/assets';
 import { labels } from '../../game/theme';
-import type { PlayerPublicState } from '../../game/types';
+import type { PlayerPublicState, PublicGameState } from '../../game/types';
 import { ROLE_IMAGE_BY_ROLE } from '../imageAssets';
+import { publicPlayerStatus } from '../gameGuidance';
 
 type PublicPlayerTableProps = {
   currentScene: string;
   players: PlayerPublicState[] | undefined;
+  publicState?: PublicGameState | null;
 };
 
-export function PublicPlayerTable({ currentScene, players }: PublicPlayerTableProps) {
+export function PublicPlayerTable({ currentScene, players, publicState }: PublicPlayerTableProps) {
   return (
     <Panel eyebrow="Public table" title="Table roster" testId="public-player-table">
       <Stack gap="sm">
@@ -18,20 +20,22 @@ export function PublicPlayerTable({ currentScene, players }: PublicPlayerTablePr
           <p className="current-scene-text">{currentScene}</p>
         </Row>
         <ul className="player-list">
-          {players?.map((player) => (
-            <li
-              key={player.id}
-              className={player.isTurn ? 'player-list__row player-list__row--active' : 'player-list__row'}
-              data-testid="public-player-row"
-            >
-              <div className="player-list__identity">
-                <strong>{player.name}</strong>
-                <small>{player.id}</small>
-              </div>
-              <div className="player-list__meta">
-                <Pill tone={player.eliminated ? 'danger' : player.isTurn ? 'success' : 'neutral'}>
-                  {player.eliminated ? 'Out' : player.isTurn ? 'Turn' : 'Ready'}
-                </Pill>
+          {players?.map((player) => {
+            const status = publicPlayerStatus(player, publicState);
+            return (
+              <li
+                key={player.id}
+                className={player.isTurn ? 'player-list__row player-list__row--active' : 'player-list__row'}
+                data-testid="public-player-row"
+              >
+                <div className="player-list__identity">
+                  <strong>{player.name}</strong>
+                  <small>{player.id}</small>
+                </div>
+                <div className="player-list__meta">
+                  <Pill tone={status.tone} data-testid="player-table-status">
+                    {status.label}
+                  </Pill>
                 <span className="rupee-chip" data-testid="player-rupees">
                   {player.rupees} Rupees
                 </span>
@@ -52,10 +56,11 @@ export function PublicPlayerTable({ currentScene, players }: PublicPlayerTablePr
                     </span>
                   ))}
                 </span>
-                {player.eliminated ? <img className="badge-icon" src={GAME_ASSETS.badges.eliminated} alt="Eliminated" /> : null}
-              </div>
-            </li>
-          )) ?? <li>No players yet</li>}
+                  {player.eliminated ? <img className="badge-icon" src={GAME_ASSETS.badges.eliminated} alt="Eliminated" /> : null}
+                </div>
+              </li>
+            );
+          }) ?? <li>No players yet</li>}
         </ul>
       </Stack>
     </Panel>
