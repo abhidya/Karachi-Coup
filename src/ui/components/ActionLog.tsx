@@ -9,6 +9,7 @@ type ActionLogProps = {
 
 export function ActionLog({ entries }: ActionLogProps) {
   const [open, setOpen] = useState(false);
+  const recentEntries = entries?.slice(-3).reverse() ?? [];
 
   return (
     <Panel eyebrow="Log" title="Action log" testId="action-log">
@@ -18,11 +19,13 @@ export function ActionLog({ entries }: ActionLogProps) {
         </Button>
       </Row>
       {open ? (
-        <ul className="event-list">
-          {entries?.length ? entries.map((entry) => <li key={entry.id}>{entry.text}</li>) : <li>Waiting for room sync.</li>}
+        <ul className="event-list event-list--full">
+          {entries?.length ? entries.slice().reverse().map((entry) => <li key={entry.id}>{entry.text}</li>) : <li>Waiting for room sync.</li>}
         </ul>
       ) : (
-        <p className="muted">Recent scene history is tucked away to save space.</p>
+        <ul className="event-list">
+          {recentEntries.length ? recentEntries.map((entry) => <li key={entry.id}>{entry.text}</li>) : <li>Waiting for room sync.</li>}
+        </ul>
       )}
     </Panel>
   );

@@ -49,6 +49,7 @@ export function HomeScreen({ displayName, onDisplayNameChange, onCreateRoom, onJ
               src={GAME_ASSETS.badges.host}
               title="Create Room"
               subtitle="Host the table and share the code"
+              layout="compact"
               onClick={onCreateRoom}
               dataTestId="create-room-button"
             />
@@ -56,6 +57,7 @@ export function HomeScreen({ displayName, onDisplayNameChange, onCreateRoom, onJ
               src={GAME_ASSETS.cards.back}
               title="Join Room"
               subtitle="Enter a room code and your name"
+              layout="compact"
               onClick={onJoinRoom}
               dataTestId="join-room-button"
             />
@@ -63,6 +65,7 @@ export function HomeScreen({ displayName, onDisplayNameChange, onCreateRoom, onJ
               src={GAME_ASSETS.rules.quick}
               title="How to Play"
               subtitle={rulesGuide.quickRules[0]}
+              layout="compact"
               onClick={onOpenRules}
               dataTestId="open-rules-button"
             />

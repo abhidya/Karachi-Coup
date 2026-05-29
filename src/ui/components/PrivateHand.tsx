@@ -1,4 +1,5 @@
 import { Panel, Pill, Row, Stack } from '../../components/Ui';
+import { GAME_ASSETS } from '../../game/assets';
 import { labels } from '../../game/theme';
 import type { ActionType, ConnectionCard, PlayerId } from '../../game/types';
 import { ConnectionCard as Card } from './ConnectionCard';
@@ -44,11 +45,11 @@ export function PrivateHand({
         </p>
         <p>Actions: <strong>{availableActions.length ? availableActions.map((action) => labels.actionLabels[action]).join(', ') : 'None'}</strong></p>
         <div className="hand-grid">
-          {hiddenConnections.map((card) => (
+          {hiddenConnections.map((card, index) => (
             <Card
               key={card.id}
-              src={ROLE_IMAGE_BY_ROLE[card.role]}
-              title={labels.roleTheme[card.role].label}
+              src={pendingBurn ? GAME_ASSETS.cards.back : ROLE_IMAGE_BY_ROLE[card.role]}
+              title={pendingBurn ? `Hidden Connection ${index + 1}` : labels.roleTheme[card.role].label}
               dataTestId="private-connection-card"
             />
           ))}

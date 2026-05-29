@@ -63,8 +63,10 @@ export const rulesGuide = {
   ] as const,
   challengeRules: [
     'Calling Bakwaas challenges a claimed role.',
+    'Choose Call Bakwaas only when you think the claimant cannot prove the named role.',
     'If the claimant proves the role, the challenger burns a Connection and play continues.',
     'If the claimant fails, the claimant burns a Connection and the action or block fails.',
+    'Burn choices are by hidden slot: character identities stay covered until after the burn is confirmed.',
     'A proven Connection returns to the deck after showing it briefly.',
   ],
   blockRules: [

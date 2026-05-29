@@ -23,7 +23,10 @@ export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBloc
   if (prompt.type === 'BURN_CONNECTION') {
     return (
       <Panel eyebrow="Response" title="Burn Connection">
-        <p className="muted">{prompt.message}</p>
+        <Stack gap="xs">
+          <p className="muted">{prompt.message}</p>
+          <p className="muted">Choose a hidden slot in the modal. You will not see the character card before confirming.</p>
+        </Stack>
       </Panel>
     );
   }
@@ -41,6 +44,9 @@ export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBloc
       <Panel eyebrow="Response" title="Call Bakwaas?">
         <Stack gap="sm">
           <p className="muted">{prompt.message}</p>
+          <p className="muted">
+            Call Bakwaas if you think they do not have {labels.roleTheme[prompt.claimedRole].label}. If you are wrong, you burn; if you are right, they burn and the scene stops.
+          </p>
           <Row>
             <Button onClick={onChallenge} data-testid="response-call-bakwaas">
               <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.challenge} alt="" />
@@ -61,6 +67,7 @@ export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBloc
       <Panel eyebrow="Response" title="Use Setting?">
         <Stack gap="sm">
           <p className="muted">{prompt.message}</p>
+          <p className="muted">Use Setting claims a blocker role. If someone calls Bakwaas and you cannot prove it, you burn one Connection.</p>
           <Row>
             {prompt.legalBlockRoles.map((role) => (
               <Button key={role} onClick={() => onBlockRole(role)} data-testid={`response-block-${role}`}>
@@ -86,16 +93,19 @@ export function ResponsePanel({ prompt, onChallenge, onPassChallenge, onPassBloc
       <Stack gap="sm">
         <p className="muted">{prompt.message}</p>
         {prompt.type === 'CHALLENGE_BLOCK' ? (
-          <Row>
-            <Button onClick={onChallenge} data-testid="response-call-bakwaas">
-              <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.challenge} alt="" />
-              {labels.responseLabels.CHALLENGE}
-            </Button>
-            <Button variant="secondary" onClick={onPassChallenge} data-testid="response-let-it-slide">
-              <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.pass} alt="" />
-              {labels.responseLabels.PASS}
-            </Button>
-          </Row>
+          <>
+            <p className="muted">Challenge the block only if you think the blocker cannot prove {labels.roleTheme[prompt.blockingRole].label}.</p>
+            <Row>
+              <Button onClick={onChallenge} data-testid="response-call-bakwaas">
+                <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.challenge} alt="" />
+                {labels.responseLabels.CHALLENGE}
+              </Button>
+              <Button variant="secondary" onClick={onPassChallenge} data-testid="response-let-it-slide">
+                <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.pass} alt="" />
+                {labels.responseLabels.PASS}
+              </Button>
+            </Row>
+          </>
         ) : null}
       </Stack>
     </Panel>

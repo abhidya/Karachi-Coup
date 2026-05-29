@@ -15,7 +15,7 @@ type JugaadReturnModalProps = {
 
 export function JugaadReturnModal({ hiddenConnections, drawnConnections, selectedIds, onToggle, onSubmit }: JugaadReturnModalProps) {
   return (
-    <Modal title="Zardaar Jugaad" subtitle="Return exactly 2 Connections to the deck" onClose={() => undefined}>
+    <Modal title="Zardaar Jugaad" subtitle="Return exactly 2 Connections to the deck" onClose={() => undefined} dismissible={false}>
       <Stack gap="sm">
         <p className="muted">Pick 2 cards to return. The other 2 stay hidden in your hand.</p>
         <Row>

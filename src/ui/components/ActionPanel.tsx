@@ -15,6 +15,15 @@ function actionSummary(actionType: ActionType) {
   return rulesGuide.actionSummaries.find((entry) => entry.action === actionType)?.summary ?? '';
 }
 
+function actionMeta(actionType: ActionType) {
+  const config = ACTION_CONFIG[actionType];
+  const parts = [`Cost ${config.cost}₹`];
+  parts.push(config.claimedRole ? `Claims ${labels.roleTheme[config.claimedRole].label}` : 'No role claim');
+  parts.push(config.challengeable ? 'Bakwaas allowed' : 'No Bakwaas');
+  parts.push(config.blockRoles.length ? `Blocked by ${config.blockRoles.map((role) => labels.roleTheme[role].label).join(' / ')}` : 'No Setting block');
+  return parts.join(' · ');
+}
+
 export function ActionPanel({ actions, onActionClick, forcedActionType }: ActionPanelProps) {
   return (
     <Panel eyebrow="Actions" title="Your move">
@@ -27,7 +36,12 @@ export function ActionPanel({ actions, onActionClick, forcedActionType }: Action
                 key={actionType}
                 src={ACTION_IMAGE_BY_ACTION[actionType]}
                 title={labels.actionLabels[actionType]}
-                subtitle={actionSummary(actionType) || (ACTION_CONFIG[actionType].challengeable ? 'Bakwaas possible' : 'No challenge')}
+                subtitle={
+                  <>
+                    <span>{actionSummary(actionType) || (ACTION_CONFIG[actionType].challengeable ? 'Bakwaas possible' : 'No challenge')}</span>
+                    <span className="art-card__meta">{actionMeta(actionType)}</span>
+                  </>
+                }
                 active={forcedActionType === actionType}
                 onClick={onActionClick ? () => onActionClick(actionType) : undefined}
                 dataTestId={`action-button-${actionType}`}

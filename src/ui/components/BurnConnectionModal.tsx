@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { Button, Row, Stack } from '../../components/Ui';
-import { labels } from '../../game/theme';
+import { GAME_ASSETS } from '../../game/assets';
 import type { ConnectionCard } from '../../game/types';
 import { ConnectionCard as Card } from './ConnectionCard';
 import { Modal } from '../modals';
-import { ROLE_IMAGE_BY_ROLE } from '../imageAssets';
 
 type BurnConnectionModalProps = {
   hiddenConnections: ConnectionCard[];
@@ -15,15 +14,17 @@ export function BurnConnectionModal({ hiddenConnections, onBurn }: BurnConnectio
   const [selectedId, setSelectedId] = useState<string>('');
 
   return (
-    <Modal title="Burn one Connection" subtitle="Choose one hidden Connection to reveal" onClose={() => undefined}>
+    <Modal title="Burn one Connection" subtitle="Choose a hidden slot; identities stay covered" onClose={() => undefined} dismissible={false}>
       <Stack gap="sm">
-        <p className="muted">Your setting took a hit. Pick one unrevealed Connection, then confirm.</p>
+        <p className="muted">
+          Pick by position only. Character names and art stay hidden until after you confirm the permanent burn.
+        </p>
         <div className="hand-grid" data-testid="burn-modal">
-          {hiddenConnections.map((card) => (
+          {hiddenConnections.map((card, index) => (
             <Card
               key={card.id}
-              src={ROLE_IMAGE_BY_ROLE[card.role]}
-              title={labels.roleTheme[card.role].label}
+              src={GAME_ASSETS.cards.back}
+              title={`Hidden Connection ${index + 1}`}
               subtitle={selectedId === card.id ? 'Selected to burn' : 'Tap to select'}
               tone={selectedId === card.id ? 'danger' : 'neutral'}
               active={selectedId === card.id}

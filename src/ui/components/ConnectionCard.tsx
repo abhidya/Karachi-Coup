@@ -4,6 +4,7 @@ type ConnectionCardProps = {
   src: string;
   title: string;
   subtitle?: ReactNode;
+  layout?: 'card' | 'compact';
   active?: boolean;
   tone?: 'neutral' | 'success' | 'warn' | 'danger';
   onClick?: () => void;
@@ -15,6 +16,7 @@ export function ConnectionCard({
   src,
   title,
   subtitle,
+  layout = 'card',
   active,
   tone = 'neutral',
   onClick,
@@ -24,7 +26,7 @@ export function ConnectionCard({
   return (
     <button
       type="button"
-      className={`art-card art-card--${tone} ${active ? 'art-card--active' : ''}`}
+      className={`art-card art-card--${layout} art-card--${tone} ${active ? 'art-card--active' : ''}`}
       onClick={onClick}
       disabled={disabled || !onClick}
       data-testid={dataTestId}

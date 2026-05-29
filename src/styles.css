@@ -737,7 +737,9 @@ input:focus-visible {
 .art-card {
   display: grid;
   gap: 8px;
+  flex: 1 1 150px;
   min-width: 130px;
+  max-width: 240px;
   padding: 12px;
   border: 1px solid rgba(255, 0, 255, 0.42);
   border-top: 2px solid rgba(0, 255, 255, 0.82);
@@ -748,6 +750,26 @@ input:focus-visible {
   color: var(--text);
   cursor: pointer;
   transition: transform 160ms linear, border-color 160ms linear, box-shadow 160ms linear, filter 160ms linear;
+}
+
+.art-card--compact {
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+  max-width: none;
+  text-align: left;
+}
+
+.art-card--compact .art-card__image {
+  grid-row: span 2;
+  width: 72px;
+  height: 72px;
+  aspect-ratio: 1;
+}
+
+.art-card--compact .art-card__title,
+.art-card--compact .art-card__subtitle {
+  grid-column: 2;
 }
 
 .art-card:hover:not(:disabled),
@@ -795,6 +817,23 @@ input:focus-visible {
 .art-card__subtitle {
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.art-card__meta {
+  display: block;
+  margin-top: 6px;
+  color: #ffe0a3;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.event-list {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.event-list--full {
+  max-height: 360px;
 }
 
 .button-icon {
@@ -1065,5 +1104,9 @@ input:focus-visible {
 
   .button {
     min-height: 48px;
+  }
+
+  .art-card {
+    max-width: none;
   }
 }
