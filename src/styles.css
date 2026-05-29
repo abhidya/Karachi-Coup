@@ -247,6 +247,86 @@ input:focus-visible {
   gap: 18px;
 }
 
+.player-decision-panel {
+  grid-column: 1 / -1;
+}
+
+.player-decision {
+  container-type: inline-size;
+}
+
+.player-decision__scene .row {
+  align-items: flex-start;
+}
+
+.player-decision__scene-copy {
+  flex: 1 1 min(100%, 420px);
+  min-width: 0;
+}
+
+.player-decision__scene .button {
+  margin-left: auto;
+}
+
+.player-decision__scene h2 {
+  margin: 0;
+  color: transparent;
+  background: var(--sunset-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  font-family: Orbitron, ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(1.35rem, 4.4vw, 2.45rem);
+  line-height: 1.02;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+}
+
+.player-decision__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 255, 255, 0.34);
+  background: rgba(0, 255, 255, 0.07);
+  color: #fff2d9;
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.player-decision__choices {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  align-items: start;
+}
+
+.player-decision__response,
+.player-decision__actions {
+  min-width: 0;
+}
+
+.player-decision__actions .row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+}
+
+.player-decision__actions .art-card {
+  max-width: none;
+}
+
+@container (max-width: 760px) {
+  .player-decision__choices {
+    grid-template-columns: 1fr;
+  }
+}
+
 .home-hero {
   align-items: start;
 }
@@ -1124,7 +1204,56 @@ input:focus-visible {
     min-height: 48px;
   }
 
+  .player-decision__scene .row {
+    align-items: stretch;
+  }
+
+  .player-decision__scene .button {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .player-decision__choices {
+    grid-template-columns: 1fr;
+  }
+
+  .player-decision__chips {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .player-decision__actions .row {
+    grid-template-columns: 1fr;
+  }
+
   .art-card {
     max-width: none;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .app-shell__inner {
+    padding-top: 12px;
+  }
+
+  .app-header__hero {
+    padding: 14px 16px;
+  }
+
+  .app-header__hero h1 {
+    font-size: clamp(2rem, 6vw, 3.8rem);
+  }
+
+  .player-decision__scene h2 {
+    font-size: clamp(1.2rem, 3vw, 1.8rem);
+  }
+
+  .player-decision__choices {
+    gap: 12px;
+  }
+
+  .player-decision__actions .art-card__image {
+    aspect-ratio: 16 / 9;
+    max-height: 150px;
   }
 }

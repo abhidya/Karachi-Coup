@@ -1,14 +1,13 @@
-import { Button, Panel, Row, Stack } from '../../components/Ui';
+import { Panel, Stack } from '../../components/Ui';
 import { GAME_ASSETS } from '../../game/assets';
 import { labels } from '../../game/theme';
 import type { ActionType, GameLogEntry, PlayerPublicState, PrivatePlayerState, PrivatePrompt, PublicGameState, Role } from '../../game/types';
 import { ActionLog } from '../components/ActionLog';
-import { ActionPanel } from '../components/ActionPanel';
 import { BurnConnectionModal } from '../components/BurnConnectionModal';
 import { JugaadReturnModal } from '../components/JugaadReturnModal';
 import { PrivateHand } from '../components/PrivateHand';
+import { PlayerDecisionPanel } from '../components/PlayerDecisionPanel';
 import { PublicPlayerTable } from '../components/PublicPlayerTable';
-import { ResponsePanel } from '../components/ResponsePanel';
 import { StatusFooter } from '../components/StatusFooter';
 import { TargetPickerModal } from '../components/TargetPickerModal';
 import { isTargetedAction } from '../actionRouting';
@@ -84,25 +83,27 @@ export function GameScreen({
 }: GameScreenProps) {
   return (
     <Stack gap="lg">
-      <section className="scene-banner panel panel--banner">
-        <Row align="center" wrap>
-          <img className="badge-icon badge-icon--large" src={GAME_ASSETS.badges.currentScene} alt="Current scene" />
-          <div className="scene-banner__copy">
-            <p className="eyebrow">{phaseLabel}</p>
-            <h2 data-testid="current-scene">{tableInstruction}</h2>
-            <p className="scene-banner__detail" data-testid="table-instruction">{waitingContext}</p>
-            <p className="muted" data-testid="table-next-step">Next: {nextStep}</p>
-            <p className="muted">Turn: <strong data-testid="active-player-name">{activePlayerName ?? 'Waiting'}</strong> · Scene: {currentScene}</p>
-          </div>
-          <div className="scene-banner__actions">
-            <Button variant="secondary" onClick={onOpenRules}>
-              Rules
-            </Button>
-          </div>
-        </Row>
-      </section>
-
       <section className="hero-grid">
+        <PlayerDecisionPanel
+          currentScene={currentScene}
+          phaseLabel={phaseLabel}
+          tableInstruction={tableInstruction}
+          waitingContext={waitingContext}
+          nextStep={nextStep}
+          activePlayerName={activePlayerName}
+          actions={privateState?.availableActions ?? []}
+          prompt={prompt}
+          onActionClick={onActionClick}
+          forcedActionType={forcedActionType}
+          actionGuidance={actionGuidance}
+          responseGuidance={responseGuidance}
+          onChallenge={onChallenge}
+          onPassChallenge={onPassChallenge}
+          onPassBlock={onPassBlock}
+          onBlockRole={onChooseBlockRole}
+          onOpenRules={onOpenRules}
+        />
+
         {privateState ? (
           <PrivateHand
             playerId={privateState.playerId}
@@ -119,12 +120,6 @@ export function GameScreen({
             <p>Join a room to see your private snapshot.</p>
           </Panel>
         )}
-        <ActionPanel
-          actions={privateState?.availableActions ?? []}
-          onActionClick={onActionClick}
-          forcedActionType={forcedActionType}
-          guidance={actionGuidance}
-        />
       </section>
 
       <div
@@ -135,14 +130,6 @@ export function GameScreen({
       </div>
 
       <section className="hero-grid table-surface table-surface--log">
-        <ResponsePanel
-          prompt={prompt}
-          onChallenge={onChallenge}
-          onPassChallenge={onPassChallenge}
-          onPassBlock={onPassBlock}
-          onBlockRole={onChooseBlockRole}
-          guidance={responseGuidance}
-        />
         <ActionLog entries={publicLog} />
       </section>
 

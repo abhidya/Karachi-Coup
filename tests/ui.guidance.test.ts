@@ -145,6 +145,9 @@ describe('integrated gameplay guidance UI', () => {
       }),
     );
 
+    expect(html).toContain('Current scene');
+    expect(html).toContain('Required response');
+    expect(html).toContain('Turn actions');
     expect(html).toContain('It is your turn. Choose one legal scene to declare.');
     expect(html).toContain('Next: Choose a target when required');
     expect(html).toContain('Each card shows cost, target, role claim, Bakwaas, and Setting consequences.');
