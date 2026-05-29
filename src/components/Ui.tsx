@@ -43,7 +43,7 @@ export function Button({
 }: ButtonProps) {
   return (
     <button className={`button button--${variant} ${className}`.trim()} type={type} onClick={onClick} disabled={disabled} {...props}>
-      {children}
+      <span className="button__content">{children}</span>
     </button>
   );
 }
