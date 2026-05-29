@@ -6,6 +6,7 @@ import type {
   ActionType,
   ClientMessage,
   HostLobbyPlayerView,
+  PrivatePlayerState,
   PublicGameState,
   Role,
 } from './game/types';
@@ -22,6 +23,172 @@ import { formatRoomLink } from './routing';
 import { createPeerClient, type ClientNetworkSnapshot, type PeerClientHandle } from './network/peerClient';
 import { createPeerHost, type HostNetworkSnapshot, type PeerHostHandle } from './network/peerHost';
 import { readSessionStorage, sessionStorageKey, writeSessionStorage } from './network/storage';
+
+
+type GameplayGuide = {
+  instruction: string;
+  waitingContext: string;
+  nextStep: string;
+  actionGuidance: string;
+  responseGuidance: string;
+};
+
+function playerNameById(publicState: PublicGameState | null, playerId: string | null | undefined) {
+  if (!playerId) return 'Someone';
+  return publicState?.players.find((player) => player.id === playerId)?.name ?? 'Someone';
+}
+
+function listNames(publicState: PublicGameState | null, playerIds: readonly string[]) {
+  const names = playerIds.map((playerId) => playerNameById(publicState, playerId));
+  if (names.length === 0) return 'the table';
+  if (names.length === 1) return names[0]!;
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+function pendingChallengeWaiters(publicState: PublicGameState) {
+  const challenge = publicState.pendingChallenge;
+  if (!challenge) return [];
+  return challenge.eligibleChallengers.filter((playerId) => challenge.responses[playerId] == null);
+}
+
+function buildGameplayGuide(publicState: PublicGameState | null, privateState: PrivatePlayerState | null): GameplayGuide {
+  if (!publicState) {
+    return {
+      instruction: 'Waiting for the host to sync the table.',
+      waitingContext: 'No public table snapshot yet.',
+      nextStep: 'Stay on this screen; the host will push the latest state.',
+      actionGuidance: 'Actions appear here when your private turn snapshot arrives.',
+      responseGuidance: 'Response buttons appear here when the host asks you to react.',
+    };
+  }
+
+  const actorName = playerNameById(publicState, publicState.pendingAction?.actorId ?? publicState.activePlayerId);
+  const targetName = playerNameById(publicState, publicState.pendingAction?.targetId);
+  const actionLabel = publicState.pendingAction ? labels.actionLabels[publicState.pendingAction.actionType] : 'scene';
+  const waiters = pendingChallengeWaiters(publicState);
+  const waiterNames = listNames(publicState, waiters);
+  const prompt = privateState?.prompt ?? null;
+
+  if (prompt?.type === 'BURN_CONNECTION') {
+    return {
+      instruction: 'You must burn one hidden Connection slot.',
+      waitingContext: `Everyone is waiting on ${playerNameById(publicState, prompt.playerId)} to choose a hidden slot.`,
+      nextStep: 'After the burn is confirmed, the host resolves the scene or moves to the next turn.',
+      actionGuidance: 'No action is available while your burn decision is pending.',
+      responseGuidance: 'Pick by slot only; role/card identity stays hidden until after confirmation.',
+    };
+  }
+
+  if (prompt?.type === 'JUGAAD_RETURN') {
+    return {
+      instruction: 'Return exactly 2 Connections to finish Zardaar Jugaad.',
+      waitingContext: `Everyone is waiting on ${playerNameById(publicState, prompt.playerId)} to return cards.`,
+      nextStep: 'When two cards are returned, play advances to the next turn.',
+      actionGuidance: 'No new action is available until Jugaad finishes.',
+      responseGuidance: 'Choose exactly two cards from the Jugaad modal, then submit them together.',
+    };
+  }
+
+  if (prompt?.type === 'CHALLENGE_ACTION') {
+    return {
+      instruction: 'Decide now: Call Bakwaas or let the action stand.',
+      waitingContext: `Waiting on ${waiterNames} to answer the Bakwaas window.`,
+      nextStep: 'If nobody calls Bakwaas, the table checks Setting blocks or resolves the action.',
+      actionGuidance: 'You cannot declare an action during another player’s Bakwaas window.',
+      responseGuidance: `Call Bakwaas only if you doubt ${actorName}'s ${labels.roleTheme[prompt.claimedRole].label}; wrong caller burns, failed claimant burns.`,
+    };
+  }
+
+  if (prompt?.type === 'BLOCK_ACTION') {
+    return {
+      instruction: 'You may Use Setting or let the action through.',
+      waitingContext: `Waiting on ${targetName === 'Someone' ? 'eligible blockers' : targetName} to answer the Setting window.`,
+      nextStep: 'A Setting claim opens its own Bakwaas window; passing lets the action resolve.',
+      actionGuidance: 'You cannot declare an action while deciding whether to block.',
+      responseGuidance: `Use Setting claims ${prompt.legalBlockRoles.map((role) => labels.roleTheme[role].label).join(' or ')}; if challenged and false, you burn.`,
+    };
+  }
+
+  if (prompt?.type === 'CHALLENGE_BLOCK') {
+    return {
+      instruction: 'Decide whether to Call Bakwaas on this Setting block.',
+      waitingContext: `Waiting on ${waiterNames} to answer the block challenge window.`,
+      nextStep: 'If the block survives, the action is stopped; if Bakwaas succeeds, the action continues.',
+      actionGuidance: 'You cannot declare an action during a Setting Bakwaas window.',
+      responseGuidance: `Challenge only if you doubt the blocker has ${labels.roleTheme[prompt.blockingRole].label}; the losing side burns.`,
+    };
+  }
+
+  if (privateState?.availableActions.length) {
+    return {
+      instruction: privateState.availableActions.length === 1 && privateState.availableActions[0] === 'FULL_BEIZZATI'
+        ? 'You have 10+ Rupees: Full Beizzati is mandatory.'
+        : 'It is your turn. Choose one legal scene to declare.',
+      waitingContext: 'The table is waiting on your action declaration.',
+      nextStep: 'Choose a target when required, then the host opens Bakwaas/Setting windows if the rules allow.',
+      actionGuidance: 'Pick one highlighted action. Each card shows cost, target, role claim, Bakwaas, and Setting consequences.',
+      responseGuidance: 'No response is required from you right now; act from the Actions panel.',
+    };
+  }
+
+  if (publicState.pendingBurn) {
+    return {
+      instruction: `${playerNameById(publicState, publicState.pendingBurn.playerId)} must burn one hidden Connection slot.`,
+      waitingContext: `Waiting on ${playerNameById(publicState, publicState.pendingBurn.playerId)}; card identity remains hidden until they confirm.`,
+      nextStep: 'After the burn, the host continues the current resolution path.',
+      actionGuidance: 'Actions are paused while the burn is pending.',
+      responseGuidance: 'No response is available unless this burn prompt is assigned to you.',
+    };
+  }
+
+  if (publicState.pendingChallenge) {
+    return {
+      instruction: publicState.pendingChallenge.kind === 'block' ? 'A Setting claim can be challenged.' : 'An action claim can be challenged.',
+      waitingContext: `Waiting on ${waiterNames} to Call Bakwaas or Let It Slide.`,
+      nextStep: 'All passes continue the scene; one Bakwaas call forces proof and a burn.',
+      actionGuidance: 'Actions are paused until the response window closes.',
+      responseGuidance: 'No response is available unless you are an eligible challenger.',
+    };
+  }
+
+  if (publicState.phase === 'BLOCK_WINDOW' && publicState.pendingAction) {
+    return {
+      instruction: `${actionLabel} may be stopped with Setting.`,
+      waitingContext: publicState.pendingAction.targetId ? `Waiting on ${targetName} to Use Setting or pass.` : 'Waiting on eligible non-actors to Use Setting or pass.',
+      nextStep: 'Passing resolves the action; using Setting may trigger Bakwaas on the blocker.',
+      actionGuidance: 'Actions are paused while the Setting window is open.',
+      responseGuidance: 'No response is available unless you are eligible to block.',
+    };
+  }
+
+  if (publicState.phase === 'TURN_START') {
+    return {
+      instruction: `${actorName} is choosing a scene.`,
+      waitingContext: `Waiting on ${actorName} to declare an action.`,
+      nextStep: 'After declaration, the table will show who can Call Bakwaas or Use Setting.',
+      actionGuidance: 'Actions appear only for the active player.',
+      responseGuidance: 'No response is required until a claim or block is declared.',
+    };
+  }
+
+  if (publicState.phase === 'GAME_OVER') {
+    return {
+      instruction: 'Game over. The winner is locked in.',
+      waitingContext: 'No more responses are pending.',
+      nextStep: 'Host can reset for another game.',
+      actionGuidance: 'No actions are available after game over.',
+      responseGuidance: 'No responses are available after game over.',
+    };
+  }
+
+  return {
+    instruction: `${gamePhaseLabel(publicState.phase)} is resolving.`,
+    waitingContext: publicState.currentScene,
+    nextStep: 'The host will advance the table after this step resolves.',
+    actionGuidance: 'Actions are paused until your next turn.',
+    responseGuidance: 'Response buttons appear here when you are the required responder.',
+  };
+}
 
 type RouteName = 'home' | 'host' | 'join' | 'lobby' | 'game';
 type ConnectionMode = 'idle' | 'host' | 'client';
@@ -282,6 +449,7 @@ export function App() {
     publicState?.players.filter((player) => player.id !== currentPlayerId && !player.eliminated) ?? [];
   const prompt = privateState?.prompt ?? null;
   const forcedActionType = privateState?.availableActions.length === 1 ? privateState.availableActions[0] ?? null : null;
+  const gameplayGuide = buildGameplayGuide(publicState, privateState);
   const screenBackground =
     route === 'home'
       ? GAME_ASSETS.backgrounds.home
@@ -504,6 +672,11 @@ export function App() {
           <GameScreen
             currentScene={publicState?.currentScene ?? 'Waiting for sync'}
             phaseLabel={gamePhaseLabel(publicState?.phase ?? 'LOBBY')}
+            tableInstruction={gameplayGuide.instruction}
+            waitingContext={gameplayGuide.waitingContext}
+            nextStep={gameplayGuide.nextStep}
+            actionGuidance={gameplayGuide.actionGuidance}
+            responseGuidance={gameplayGuide.responseGuidance}
             publicPlayers={publicState?.players ?? []}
             activePlayerName={activePlayerName}
             privateState={privateState}

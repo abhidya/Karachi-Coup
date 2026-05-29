@@ -9,6 +9,7 @@ type ActionPanelProps = {
   actions: ActionType[];
   onActionClick?: (actionType: ActionType) => void;
   forcedActionType?: ActionType | null;
+  guidance?: string;
 };
 
 function actionSummary(actionType: ActionType) {
@@ -18,17 +19,19 @@ function actionSummary(actionType: ActionType) {
 function actionMeta(actionType: ActionType) {
   const config = ACTION_CONFIG[actionType];
   const parts = [`Cost ${config.cost}₹`];
+  parts.push(config.needsTarget ? 'Choose a target' : 'No target');
   parts.push(config.claimedRole ? `Claims ${labels.roleTheme[config.claimedRole].label}` : 'No role claim');
   parts.push(config.challengeable ? 'Bakwaas allowed' : 'No Bakwaas');
   parts.push(config.blockRoles.length ? `Blocked by ${config.blockRoles.map((role) => labels.roleTheme[role].label).join(' / ')}` : 'No Setting block');
   return parts.join(' · ');
 }
 
-export function ActionPanel({ actions, onActionClick, forcedActionType }: ActionPanelProps) {
+export function ActionPanel({ actions, onActionClick, forcedActionType, guidance }: ActionPanelProps) {
   return (
     <Panel eyebrow="Actions" title="Your move">
       <Stack gap="sm">
-        {forcedActionType ? <p className="muted">10+ Rupees: Full Beizzati is mandatory.</p> : null}
+        {guidance ? <p className="guidance-copy" data-testid="action-guidance">{guidance}</p> : null}
+        {forcedActionType ? <p className="muted">10+ Rupees: Full Beizzati is mandatory. Choose a target and resolve the burn.</p> : null}
         {actions.length ? (
           <Row>
             {actions.map((actionType) => (
