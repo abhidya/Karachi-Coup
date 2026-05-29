@@ -5,9 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#1f120b" />
     <title>Karachi Coup</title>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module">
+      if (location.hostname.endsWith('github.io')) {
+        const stylesheet = document.createElement('link');
+        stylesheet.rel = 'stylesheet';
+        stylesheet.crossOrigin = '';
+        stylesheet.href = '/Karachi-Coup/assets/main-ABdDD3i-.css';
+        document.head.append(stylesheet);
+
+        const app = document.createElement('script');
+        app.type = 'module';
+        app.crossOrigin = '';
+        app.src = '/Karachi-Coup/assets/main-CpwM_WMt.js';
+        document.head.append(app);
+      } else {
+        import('/src/main.tsx');
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
   </body>
-  </html>
+</html>
