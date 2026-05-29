@@ -1257,3 +1257,212 @@ input:focus-visible {
     max-height: 150px;
   }
 }
+
+/* Simplified play surface: prioritize the next decision over rules text. */
+.player-decision-panel--simple .panel__body {
+  padding-top: 10px;
+}
+
+.player-decision-panel--simple .panel__header h2 {
+  font-size: clamp(1.4rem, 3vw, 2.1rem);
+}
+
+.turn-focus {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 280px);
+  gap: 16px;
+  align-items: stretch;
+  padding: clamp(14px, 2.2vw, 22px);
+  border: 1px solid rgba(0, 255, 255, 0.36);
+  background:
+    linear-gradient(135deg, rgba(0, 255, 255, 0.12), rgba(255, 0, 255, 0.06)),
+    rgba(3, 7, 16, 0.62);
+}
+
+.turn-focus__kicker {
+  margin: 0 0 8px;
+  color: var(--orange);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.turn-focus h2 {
+  margin: 0;
+  color: #fff7df;
+  font-family: Orbitron, ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(1.8rem, 6vw, 4rem);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+  text-shadow: 0 0 18px rgba(255, 153, 0, 0.28);
+}
+
+.turn-focus__subtext {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: clamp(1rem, 2.2vw, 1.2rem);
+}
+
+.turn-focus__side {
+  display: grid;
+  gap: 9px;
+  align-content: start;
+}
+
+.turn-focus__next {
+  display: block;
+  padding: 12px;
+  border: 2px solid var(--orange);
+  background: rgba(255, 153, 0, 0.14);
+  color: #fff2d9;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.turn-focus__mini,
+.turn-focus__quiet-next {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.turn-focus__quiet-next {
+  margin: 10px 2px 0;
+}
+
+.player-decision__choices {
+  margin-top: 14px;
+}
+
+.decision-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.player-decision__choices--response-first .decision-card--response {
+  border-color: rgba(255, 153, 0, 0.72);
+  box-shadow: 0 0 20px rgba(255, 153, 0, 0.14);
+}
+
+.guidance-copy--simple {
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #fff2d9;
+  font-size: 1rem;
+}
+
+.action-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr));
+  gap: 10px;
+}
+
+.action-card-grid .art-card {
+  max-width: none;
+  min-width: 0;
+}
+
+.action-card-grid .art-card__image {
+  aspect-ratio: 4 / 3;
+  max-height: 150px;
+}
+
+.game-table-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.table-surface--quiet .event-list {
+  max-height: 180px;
+}
+
+.private-hand__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 0;
+  color: var(--muted);
+}
+
+.private-hand__status strong {
+  color: var(--cyan);
+  font-size: 1.05rem;
+}
+
+@media (max-width: 900px) {
+  .turn-focus,
+  .game-table-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .turn-focus__side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .turn-focus__next,
+  .turn-focus__side .button {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 520px) {
+  .app-shell__inner {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .turn-focus {
+    padding: 12px;
+  }
+
+  .turn-focus h2 {
+    font-size: clamp(1.55rem, 11vw, 2.6rem);
+  }
+
+  .turn-focus__side {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-card {
+    padding: 12px;
+  }
+
+  .action-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .button {
+    width: 100%;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .turn-focus {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+    padding: 10px 12px;
+  }
+
+  .turn-focus h2 {
+    font-size: clamp(1.35rem, 5vw, 2.35rem);
+  }
+
+  .action-card-grid .art-card {
+    grid-template-columns: 64px minmax(0, 1fr);
+    text-align: left;
+  }
+
+  .action-card-grid .art-card__image {
+    grid-row: span 2;
+    width: 64px;
+    height: 64px;
+  }
+}

@@ -4,7 +4,7 @@ import { hostStorageKey } from '../../src/network/storage';
 export async function createHostedRoom(page: Page, hostName: string) {
   await page.goto('./');
   await page.getByLabel('Your name').fill(hostName);
-  await page.getByRole('button', { name: 'Create room' }).click();
+  await page.getByTestId('create-room-button').click();
 
   await expect(page).toHaveURL(/#\/lobby\?room=([A-Z0-9]+)/);
   await expect(page.getByTestId('current-scene')).toBeVisible();

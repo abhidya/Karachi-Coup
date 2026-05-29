@@ -40,10 +40,10 @@ export function PrivateHand({
             {hiddenConnections.length} hidden
           </Pill>
         </Row>
-        <p>
-          Elimination: <strong>{eliminated ? 'Eliminated' : 'Alive'}</strong>
+        <p className="private-hand__status">
+          <strong>{eliminated ? 'Eliminated' : isTurn ? 'Your turn' : 'Alive'}</strong>
+          <span>{availableActions.length ? `${availableActions.length} move${availableActions.length === 1 ? '' : 's'} ready` : 'No move right now'}</span>
         </p>
-        <p>Actions: <strong>{availableActions.length ? availableActions.map((action) => labels.actionLabels[action]).join(', ') : 'None'}</strong></p>
         <div className="hand-grid">
           {hiddenConnections.map((card, index) => (
             <Card
@@ -54,9 +54,8 @@ export function PrivateHand({
             />
           ))}
         </div>
-        {isTurn ? <p className="muted">Your turn.</p> : <p className="muted">Waiting for your turn.</p>}
-        {pendingBurn ? <p className="muted">Burn Connection modal waiting below.</p> : null}
-        {pendingJugaad ? <p className="muted">Return 2 Connections from your active Jugaad draw.</p> : null}
+        {pendingBurn ? <p className="muted">Burn by hidden slot. Card identity stays covered until you confirm.</p> : null}
+        {pendingJugaad ? <p className="muted">Return exactly 2 cards.</p> : null}
       </Stack>
     </Panel>
   );

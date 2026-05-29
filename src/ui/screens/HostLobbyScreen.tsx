@@ -37,8 +37,8 @@ export function HostLobbyScreen({
             <img className="lobby-hero" src={GAME_ASSETS.lobby.hostHero} alt="Host lobby" />
             <p className="guidance-copy" data-testid="host-lobby-guidance">
               {hasRoom
-                ? 'Share this room code, wait for at least 2 players, then start. Keep this host tab open; it runs the table and validates every move.'
-                : 'No room exists yet. Create a room here to become Player 1, then share the generated code with friends.'}
+                ? 'Share this code. Keep this tab open.'
+                : 'Create a room to get a code.'}
             </p>
             <div className="room-code-card" data-testid="room-code">
               <span className="eyebrow">Room code</span>
@@ -63,7 +63,7 @@ export function HostLobbyScreen({
             </Row>
           </Stack>
         </Panel>
-        <Panel eyebrow="Networking" title="Host status">
+        <Panel eyebrow="Host" title="Table status">
           <Stack gap="sm">
             <Row>
               <img className="badge-icon" src={GAME_ASSETS.badges.host} alt="Host" />
@@ -71,8 +71,8 @@ export function HostLobbyScreen({
                 {hostStatus}
               </Pill>
             </Row>
-            <p className="muted">{hasRoom ? 'You are Player 1 and the room host. Keep this device open so every player stays synced.' : 'Create a room before inviting players or starting the game.'}</p>
-            <p className="muted">{hasRoom ? (canStart ? 'Ready: enough players are seated.' : 'Waiting: at least 2 players are needed before Start game unlocks.') : 'Start game unlocks after a room exists and enough players join.'}</p>
+            <p className="muted">{hasRoom ? 'Keep this device open while friends play.' : 'Create a room before inviting friends.'}</p>
+            <p className="muted">{hasRoom ? (canStart ? 'Ready to start.' : 'Need at least 2 players.') : 'Start unlocks after friends join.'}</p>
             <Row>
               <Button onClick={onStartGame} disabled={!hasRoom || !canStart} data-testid="start-game-button">
                 Start game
@@ -92,13 +92,10 @@ export function HostLobbyScreen({
               <li key={player.playerId} className="player-list__row player-list__row--lobby" data-testid="connected-player-row">
                 <div className="player-list__identity">
                   <strong>{player.name}</strong>
-                  <small>{player.playerId}</small>
+                  <small>{player.connected ? 'Connected' : 'Offline'}</small>
                 </div>
                 <div className="player-list__meta">
-                  <span className="rupee-chip">{player.rupees} Rupees</span>
-                  <span>{player.hiddenConnectionCount} Connections</span>
-                  <span>{player.connected ? 'Connected' : 'Offline'}</span>
-                  <span>{player.eliminated ? 'Eliminated' : 'Alive'}</span>
+                  <span>{player.eliminated ? 'Eliminated' : 'Ready'}</span>
                 </div>
               </li>
             ))

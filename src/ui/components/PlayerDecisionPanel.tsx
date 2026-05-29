@@ -1,5 +1,4 @@
 import { Button, Panel, Row, Stack } from '../../components/Ui';
-import { GAME_ASSETS } from '../../game/assets';
 import { ACTION_CONFIG } from '../../game/rules';
 import { labels, rulesGuide } from '../../game/theme';
 import type { ActionType, PrivatePrompt, Role } from '../../game/types';
@@ -32,7 +31,8 @@ function actionSummary(actionType: ActionType) {
 }
 
 function actionMeta(actionType: ActionType) {
-  return actionMetaParts(actionType).join(' · ');
+  const parts = actionMetaParts(actionType);
+  return parts.filter((part) => part.startsWith('Cost') || part === 'Choose a target' || part === 'No target').join(' · ');
 }
 
 function hasResponseChoice(prompt: PrivatePrompt) {
@@ -40,11 +40,19 @@ function hasResponseChoice(prompt: PrivatePrompt) {
 }
 
 function decisionTitle(prompt: PrivatePrompt, actions: ActionType[]) {
-  if (hasResponseChoice(prompt)) return 'Respond now';
-  if (prompt?.type === 'BURN_CONNECTION') return 'Burn required';
+  if (hasResponseChoice(prompt)) return 'Your response';
+  if (prompt?.type === 'BURN_CONNECTION') return 'Burn a slot';
   if (prompt?.type === 'JUGAAD_RETURN') return 'Return cards';
   if (actions.length) return 'Your move';
-  return 'Waiting for the table';
+  return 'Watch the table';
+}
+
+function primaryLabel(prompt: PrivatePrompt, actions: ActionType[]) {
+  if (hasResponseChoice(prompt)) return 'Choose a reply';
+  if (prompt?.type === 'BURN_CONNECTION') return 'Choose a hidden slot in the popup';
+  if (prompt?.type === 'JUGAAD_RETURN') return 'Pick exactly 2 cards in the popup';
+  if (actions.length) return 'Tap one move card';
+  return 'Nothing needed from you';
 }
 
 export function PlayerDecisionPanel({
@@ -66,45 +74,46 @@ export function PlayerDecisionPanel({
   onBlockRole,
   onOpenRules,
 }: PlayerDecisionPanelProps) {
+  const needsResponse = hasResponseChoice(prompt) || prompt?.type === 'BURN_CONNECTION' || prompt?.type === 'JUGAAD_RETURN';
+
   return (
-    <Panel eyebrow={phaseLabel} title={decisionTitle(prompt, actions)} className="player-decision-panel">
-      <div className="stack stack--md player-decision" data-testid="player-decision-panel">
-        <section className="player-decision__scene scene-banner__copy">
-          <Row align="center" wrap>
-            <img className="badge-icon badge-icon--large" src={GAME_ASSETS.badges.currentScene} alt="Current scene" />
-            <div className="player-decision__scene-copy">
-              <p className="eyebrow">Current scene</p>
-              <h2 data-testid="current-scene">{tableInstruction}</h2>
-              <p className="scene-banner__detail" data-testid="table-instruction">{waitingContext}</p>
-              <div className="player-decision__chips" aria-label="Current table status">
-                <span className="status-pill" data-testid="table-next-step">Next: {nextStep}</span>
-                <span className="status-pill">Turn: <strong data-testid="active-player-name">{activePlayerName ?? 'Waiting'}</strong></span>
-                <span className="status-pill">Scene: {currentScene}</span>
-              </div>
-            </div>
-            <Button variant="secondary" onClick={onOpenRules}>Rules</Button>
-          </Row>
+    <Panel eyebrow={phaseLabel} title={decisionTitle(prompt, actions)} className="player-decision-panel player-decision-panel--simple">
+      <div className="player-decision" data-testid="player-decision-panel">
+        <section className="turn-focus" aria-label="Current turn summary">
+          <div className="turn-focus__copy">
+            <p className="turn-focus__kicker">Now</p>
+            <h2 data-testid="current-scene">{tableInstruction}</h2>
+            <p className="turn-focus__subtext" data-testid="table-instruction">{waitingContext}</p>
+          </div>
+          <div className="turn-focus__side">
+            <span className="turn-focus__next" data-testid="table-next-step">{primaryLabel(prompt, actions)}</span>
+            <span className="turn-focus__mini">Turn: <strong data-testid="active-player-name">{activePlayerName ?? 'Waiting'}</strong></span>
+            <span className="turn-focus__mini">Scene: {currentScene}</span>
+            <Button variant="ghost" onClick={onOpenRules}>Rules</Button>
+          </div>
         </section>
 
-        <div className="player-decision__choices">
-          <section className="player-decision__response">
-            <p className="eyebrow">Required response</p>
-            <ResponseDecision
-              prompt={prompt}
-              guidance={responseGuidance}
-              onChallenge={onChallenge}
-              onPassChallenge={onPassChallenge}
-              onPassBlock={onPassBlock}
-              onBlockRole={onBlockRole}
-            />
-          </section>
-
-          <section className="player-decision__actions">
-            <p className="eyebrow">Turn actions</p>
-            {actionGuidance ? <p className="guidance-copy" data-testid="action-guidance">{actionGuidance}</p> : null}
-            {forcedActionType ? <p className="muted">10+ Rupees: Full Beizzati is mandatory. Choose a target and resolve the burn.</p> : null}
-            {actions.length ? (
-              <Row>
+        {needsResponse ? (
+          <div className="player-decision__choices player-decision__choices--single player-decision__choices--response-first">
+            <section className="decision-card decision-card--response">
+              <p className="eyebrow">Reply</p>
+              <ResponseDecision
+                prompt={prompt}
+                guidance={responseGuidance}
+                onChallenge={onChallenge}
+                onPassChallenge={onPassChallenge}
+                onPassBlock={onPassBlock}
+                onBlockRole={onBlockRole}
+              />
+            </section>
+          </div>
+        ) : actions.length ? (
+          <div className="player-decision__choices player-decision__choices--single">
+            <section className="decision-card decision-card--actions">
+              <p className="eyebrow">Moves</p>
+              {actionGuidance ? <p className="guidance-copy guidance-copy--simple" data-testid="action-guidance">{actionGuidance}</p> : null}
+              {forcedActionType ? <p className="muted">10+ Rupees: Full Beizzati is mandatory.</p> : null}
+              <div className="action-card-grid" aria-label="Available moves">
                 {actions.map((actionType) => (
                   <ConnectionCard
                     key={actionType}
@@ -121,12 +130,19 @@ export function PlayerDecisionPanel({
                     dataTestId={`action-button-${actionType}`}
                   />
                 ))}
-              </Row>
-            ) : (
-              <p className="muted">No legal turn actions now. Check the response area above for anything required from you.</p>
-            )}
-          </section>
-        </div>
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="player-decision__choices player-decision__choices--single">
+            <section className="decision-card">
+              <p className="eyebrow">Status</p>
+              <p className="muted">No move or reply needed from you.</p>
+            </section>
+          </div>
+        )}
+
+        <p className="turn-focus__quiet-next">Next: {nextStep}</p>
       </div>
     </Panel>
   );
@@ -145,8 +161,8 @@ function ResponseDecision({ prompt, guidance, onChallenge, onPassChallenge, onPa
   if (!prompt) {
     return (
       <Stack gap="xs">
-        {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
-        <p className="muted">No Bakwaas, Setting, burn, or return decision is waiting on you.</p>
+        {guidance ? <p className="guidance-copy guidance-copy--simple" data-testid="response-guidance">{guidance}</p> : null}
+        <p className="muted">No reply needed.</p>
       </Stack>
     );
   }
@@ -154,9 +170,8 @@ function ResponseDecision({ prompt, guidance, onChallenge, onPassChallenge, onPa
   if (prompt.type === 'BURN_CONNECTION') {
     return (
       <Stack gap="xs">
-        {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
+        {guidance ? <p className="guidance-copy guidance-copy--simple" data-testid="response-guidance">{guidance}</p> : null}
         <p className="muted">{prompt.message}</p>
-        <p className="muted">Choose a hidden slot in the modal. You will not see the character card before confirming.</p>
       </Stack>
     );
   }
@@ -164,7 +179,7 @@ function ResponseDecision({ prompt, guidance, onChallenge, onPassChallenge, onPa
   if (prompt.type === 'JUGAAD_RETURN') {
     return (
       <Stack gap="xs">
-        {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
+        {guidance ? <p className="guidance-copy guidance-copy--simple" data-testid="response-guidance">{guidance}</p> : null}
         <p className="muted">{prompt.message}</p>
       </Stack>
     );
@@ -173,11 +188,8 @@ function ResponseDecision({ prompt, guidance, onChallenge, onPassChallenge, onPa
   if (prompt.type === 'CHALLENGE_ACTION') {
     return (
       <Stack gap="sm">
-        {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
-        <p className="muted">{prompt.message}</p>
-        <p className="muted">
-          Call Bakwaas if you think they do not have {labels.roleTheme[prompt.claimedRole].label}. If you are wrong, you burn; if you are right, they burn and the scene stops.
-        </p>
+        {guidance ? <p className="guidance-copy guidance-copy--simple" data-testid="response-guidance">{guidance}</p> : null}
+        <p className="muted">Wrong caller burns. Correct caller makes the claimant burn.</p>
         <Row>
           <Button onClick={onChallenge} data-testid="response-call-bakwaas">
             <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.challenge} alt="" />
@@ -195,9 +207,8 @@ function ResponseDecision({ prompt, guidance, onChallenge, onPassChallenge, onPa
   if (prompt.type === 'BLOCK_ACTION') {
     return (
       <Stack gap="sm">
-        {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
-        <p className="muted">{prompt.message}</p>
-        <p className="muted">Use Setting claims a blocker role. If someone calls Bakwaas and you cannot prove it, you burn one Connection.</p>
+        {guidance ? <p className="guidance-copy guidance-copy--simple" data-testid="response-guidance">{guidance}</p> : null}
+        <p className="muted">Block with Setting, or let it happen.</p>
         <Row>
           {prompt.legalBlockRoles.map((role) => (
             <Button key={role} onClick={() => onBlockRole(role)} data-testid={`response-block-${role}`}>
@@ -216,22 +227,19 @@ function ResponseDecision({ prompt, guidance, onChallenge, onPassChallenge, onPa
 
   return (
     <Stack gap="sm">
-      {guidance ? <p className="guidance-copy" data-testid="response-guidance">{guidance}</p> : null}
-      <p className="muted">{prompt.message}</p>
+      {guidance ? <p className="guidance-copy guidance-copy--simple" data-testid="response-guidance">{guidance}</p> : null}
+      <p className="muted">Challenge only if the Setting claim feels false.</p>
       {prompt.type === 'CHALLENGE_BLOCK' ? (
-        <>
-          <p className="muted">Challenge the block only if you think the blocker cannot prove {labels.roleTheme[prompt.blockingRole].label}.</p>
-          <Row>
-            <Button onClick={onChallenge} data-testid="response-call-bakwaas">
-              <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.challenge} alt="" />
-              {labels.responseLabels.CHALLENGE}
-            </Button>
-            <Button variant="secondary" onClick={onPassChallenge} data-testid="response-let-it-slide">
-              <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.pass} alt="" />
-              {labels.responseLabels.PASS}
-            </Button>
-          </Row>
-        </>
+        <Row>
+          <Button onClick={onChallenge} data-testid="response-call-bakwaas">
+            <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.challenge} alt="" />
+            {labels.responseLabels.CHALLENGE}
+          </Button>
+          <Button variant="secondary" onClick={onPassChallenge} data-testid="response-let-it-slide">
+            <img className="button-icon" src={RESPONSE_IMAGE_BY_LABEL.pass} alt="" />
+            {labels.responseLabels.PASS}
+          </Button>
+        </Row>
       ) : null}
     </Stack>
   );

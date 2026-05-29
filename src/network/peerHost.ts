@@ -41,6 +41,7 @@ type HostConnection = {
 type JoinedConnection = {
   connection: HostConnection;
   playerId: PlayerId | null;
+  generation: number;
 };
 
 type PersistedHostState = {
@@ -272,6 +273,7 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   const { default: Peer } = (await import('peerjs')) as PeerModule;
   const listeners = new Set<(snapshot: HostNetworkSnapshot) => void>();
   const connections = new Map<string, JoinedConnection>();
+  const activeConnectionGenerations = new Map<PlayerId, number>();
   const storedState = loadStoredState(roomId);
   const storedIdentity = loadHostIdentity(roomId) ?? { clientNonce: makeHostNonce(roomId), displayName: 'Player 1', playerId: null };
   let state = storedState ?? createHostGameState(roomId, makeGameId(roomId));
@@ -280,6 +282,7 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   let peer: HostPeerInstance | null = null;
   let snapshot = buildSnapshot('starting', roomId, null, connections, state, null, null, Boolean(storedState));
   let destroyed = false;
+  let nextConnectionGeneration = 1;
 
   const emit = (nextPhase: HostNetworkPhase = snapshot.phase, lastEvent = snapshot.lastEvent, error = snapshot.error) => {
     persistState(roomId, state);
@@ -383,6 +386,12 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   };
 
   const joinPlayer = (connection: HostConnection, message: ClientJoinMessage) => {
+    const joined = connections.get(connection.peer);
+    if (!joined || joined.connection !== connection) {
+      sendMessage(connection, { type: 'ERROR', message: 'Connection has been superseded.' });
+      return;
+    }
+
     const normalizedRoom = message.roomCode.trim().toUpperCase();
     if (normalizedRoom !== state.roomCode) {
       sendMessage(connection, { type: 'ERROR', message: `Room mismatch: expected ${state.roomCode}.` });
@@ -421,21 +430,29 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       ].slice(0, 12),
     };
 
-    connections.set(connection.peer, { connection, playerId });
+    connections.set(connection.peer, { ...joined, playerId });
+    activeConnectionGenerations.set(playerId, joined.generation);
     syncConnection(connection, playerId, state);
     broadcastState(`host:join:${playerId}`);
   };
 
   const handleMessage = (connection: HostConnection, raw: unknown) => {
+    const current = connections.get(connection.peer);
+    if (!current || current.connection !== connection) {
+      sendMessage(connection, { type: 'ERROR', message: 'Connection has been superseded.' });
+      return;
+    }
+
     if (isJoinMessage(raw)) {
       joinPlayer(connection, raw);
       return;
     }
 
     if (isResyncMessage(raw)) {
-      const existing = connections.get(connection.peer);
-      if (existing?.playerId) {
-        syncConnection(connection, existing.playerId, state);
+      if (current.playerId && activeConnectionGenerations.get(current.playerId) === current.generation) {
+        syncConnection(connection, current.playerId, state);
+      } else if (current.playerId) {
+        sendMessage(connection, { type: 'ERROR', message: 'Connection has been superseded.' });
       } else {
         sendMessage(connection, { type: 'ERROR', message: 'Join before requesting a resync.' });
       }
@@ -447,13 +464,16 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       return;
     }
 
-    const joined = connections.get(connection.peer);
-    if (!joined?.playerId) {
+    if (!current.playerId) {
       sendMessage(connection, { type: 'ERROR', message: 'Send JOIN before gameplay messages.' });
       return;
     }
+    if (activeConnectionGenerations.get(current.playerId) !== current.generation) {
+      sendMessage(connection, { type: 'ERROR', message: 'Connection has been superseded.' });
+      return;
+    }
 
-    const playerId = joined.playerId;
+    const playerId = current.playerId;
     const validation = validateClientMessage(state, playerId, raw);
     if (!validation.ok) {
       sendMessage(connection, { type: 'ERROR', message: validation.reason ?? 'Message rejected.' });
@@ -527,7 +547,9 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
 
   peer.on('connection', (connection: unknown) => {
     const typedConnection = connection as HostConnection;
-    connections.set(typedConnection.peer, { connection: typedConnection, playerId: null });
+    const generation = nextConnectionGeneration;
+    nextConnectionGeneration += 1;
+    connections.set(typedConnection.peer, { connection: typedConnection, playerId: null, generation });
     snapshot = {
       ...snapshot,
       lastEvent: `host:connection:${typedConnection.peer}`,
@@ -540,8 +562,13 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
 
     typedConnection.on('close', () => {
       const joined = connections.get(typedConnection.peer);
+      if (!joined || joined.connection !== typedConnection) {
+        return;
+      }
+
       connections.delete(typedConnection.peer);
-      if (joined?.playerId) {
+      if (joined.playerId && activeConnectionGenerations.get(joined.playerId) === joined.generation) {
+        activeConnectionGenerations.delete(joined.playerId);
         const player = state.playersById[joined.playerId];
         if (player) {
           state = {

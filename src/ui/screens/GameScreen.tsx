@@ -122,15 +122,17 @@ export function GameScreen({
         )}
       </section>
 
-      <div
-        className="table-surface"
-        style={{ backgroundImage: `linear-gradient(180deg, rgba(4, 8, 16, 0.72), rgba(4, 8, 16, 0.92)), url(${GAME_ASSETS.backgrounds.darkTable})` }}
-      >
-        <PublicPlayerTable currentScene={currentScene} players={publicPlayers} publicState={publicState} />
-      </div>
+      <section className="game-table-grid">
+        <div
+          className="table-surface"
+          style={{ backgroundImage: `linear-gradient(180deg, rgba(4, 8, 16, 0.72), rgba(4, 8, 16, 0.92)), url(${GAME_ASSETS.backgrounds.darkTable})` }}
+        >
+          <PublicPlayerTable currentScene={currentScene} players={publicPlayers} publicState={publicState} />
+        </div>
 
-      <section className="hero-grid table-surface table-surface--log">
-        <ActionLog entries={publicLog} />
+        <div className="table-surface table-surface--log table-surface--quiet">
+          <ActionLog entries={publicLog} />
+        </div>
       </section>
 
       {pendingActionType && isTargetedAction(pendingActionType) ? (

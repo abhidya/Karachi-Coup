@@ -54,11 +54,11 @@ function pendingChallengeWaiters(publicState: PublicGameState) {
 function buildGameplayGuide(publicState: PublicGameState | null, privateState: PrivatePlayerState | null): GameplayGuide {
   if (!publicState) {
     return {
-      instruction: 'Waiting for the host to sync the table.',
-      waitingContext: 'No public table snapshot yet.',
-      nextStep: 'Stay on this screen; the host will push the latest state.',
-      actionGuidance: 'Actions appear here when your private turn snapshot arrives.',
-      responseGuidance: 'Response buttons appear here when the host asks you to react.',
+      instruction: 'Waiting for the host.',
+      waitingContext: 'Room sync has not arrived yet.',
+      nextStep: 'Keep this tab open.',
+      actionGuidance: 'Your move appears here.',
+      responseGuidance: 'Replies appear only when needed.',
     };
   }
 
@@ -71,50 +71,50 @@ function buildGameplayGuide(publicState: PublicGameState | null, privateState: P
 
   if (prompt?.type === 'BURN_CONNECTION') {
     return {
-      instruction: 'You must burn one hidden Connection slot.',
+      instruction: 'Burn one hidden slot.',
       waitingContext: `Everyone is waiting on ${playerNameById(publicState, prompt.playerId)} to choose a hidden slot.`,
-      nextStep: 'After the burn is confirmed, the host resolves the scene or moves to the next turn.',
-      actionGuidance: 'No action is available while your burn decision is pending.',
-      responseGuidance: 'Pick by slot only; role/card identity stays hidden until after confirmation.',
+      nextStep: 'Pick a slot; then play continues.',
+      actionGuidance: 'Burn first.',
+      responseGuidance: 'Choose by slot. Card identity stays hidden.',
     };
   }
 
   if (prompt?.type === 'JUGAAD_RETURN') {
     return {
-      instruction: 'Return exactly 2 Connections to finish Zardaar Jugaad.',
+      instruction: 'Return 2 cards.',
       waitingContext: `Everyone is waiting on ${playerNameById(publicState, prompt.playerId)} to return cards.`,
-      nextStep: 'When two cards are returned, play advances to the next turn.',
-      actionGuidance: 'No new action is available until Jugaad finishes.',
-      responseGuidance: 'Choose exactly two cards from the Jugaad modal, then submit them together.',
+      nextStep: 'Return 2; then play continues.',
+      actionGuidance: 'Finish Jugaad first.',
+      responseGuidance: 'Pick exactly 2 cards.',
     };
   }
 
   if (prompt?.type === 'CHALLENGE_ACTION') {
     return {
-      instruction: 'Decide now: Call Bakwaas or let the action stand.',
+      instruction: 'Call Bakwaas?',
       waitingContext: `Waiting on ${waiterNames} to answer the Bakwaas window.`,
-      nextStep: 'If nobody calls Bakwaas, the table checks Setting blocks or resolves the action.',
-      actionGuidance: 'You cannot declare an action during another player’s Bakwaas window.',
-      responseGuidance: `Call Bakwaas only if you doubt ${actorName}'s ${labels.roleTheme[prompt.claimedRole].label}; wrong caller burns, failed claimant burns.`,
+      nextStep: 'Call or pass.',
+      actionGuidance: 'Respond first.',
+      responseGuidance: `Call Bakwaas if you doubt ${actorName}'s ${labels.roleTheme[prompt.claimedRole].label}; wrong caller burns, failed claimant burns.`,
     };
   }
 
   if (prompt?.type === 'BLOCK_ACTION') {
     return {
-      instruction: 'You may Use Setting or let the action through.',
+      instruction: 'Use Setting?',
       waitingContext: `Waiting on ${targetName === 'Someone' ? 'eligible blockers' : targetName} to answer the Setting window.`,
-      nextStep: 'A Setting claim opens its own Bakwaas window; passing lets the action resolve.',
-      actionGuidance: 'You cannot declare an action while deciding whether to block.',
+      nextStep: 'Block or pass.',
+      actionGuidance: 'Respond first.',
       responseGuidance: `Use Setting claims ${prompt.legalBlockRoles.map((role) => labels.roleTheme[role].label).join(' or ')}; if challenged and false, you burn.`,
     };
   }
 
   if (prompt?.type === 'CHALLENGE_BLOCK') {
     return {
-      instruction: 'Decide whether to Call Bakwaas on this Setting block.',
+      instruction: 'Challenge the Setting?',
       waitingContext: `Waiting on ${waiterNames} to answer the block challenge window.`,
-      nextStep: 'If the block survives, the action is stopped; if Bakwaas succeeds, the action continues.',
-      actionGuidance: 'You cannot declare an action during a Setting Bakwaas window.',
+      nextStep: 'Call or pass.',
+      actionGuidance: 'Respond first.',
       responseGuidance: `Challenge only if you doubt the blocker has ${labels.roleTheme[prompt.blockingRole].label}; the losing side burns.`,
     };
   }
@@ -123,50 +123,50 @@ function buildGameplayGuide(publicState: PublicGameState | null, privateState: P
     return {
       instruction: privateState.availableActions.length === 1 && privateState.availableActions[0] === 'FULL_BEIZZATI'
         ? 'You have 10+ Rupees: Full Beizzati is mandatory.'
-        : 'It is your turn. Choose one legal scene to declare.',
-      waitingContext: 'The table is waiting on your action declaration.',
-      nextStep: 'Choose a target when required, then the host opens Bakwaas/Setting windows if the rules allow.',
-      actionGuidance: 'Pick one highlighted action. Each card shows cost, target, role claim, Bakwaas, and Setting consequences.',
-      responseGuidance: 'No response is required from you right now; act from the Actions panel.',
+        : 'Your turn. Pick one move.',
+      waitingContext: 'Everyone is waiting for you.',
+      nextStep: 'Pick a move. Target if asked.',
+      actionGuidance: 'Tap a move card.',
+      responseGuidance: 'No reply needed. Make your move.',
     };
   }
 
   if (publicState.pendingBurn) {
     return {
-      instruction: `${playerNameById(publicState, publicState.pendingBurn.playerId)} must burn one hidden Connection slot.`,
+      instruction: `${playerNameById(publicState, publicState.pendingBurn.playerId)} must burn one hidden slot.`,
       waitingContext: `Waiting on ${playerNameById(publicState, publicState.pendingBurn.playerId)}; card identity remains hidden until they confirm.`,
-      nextStep: 'After the burn, the host continues the current resolution path.',
-      actionGuidance: 'Actions are paused while the burn is pending.',
-      responseGuidance: 'No response is available unless this burn prompt is assigned to you.',
+      nextStep: 'After the burn, play continues.',
+      actionGuidance: 'Paused for burn.',
+      responseGuidance: 'Only the burning player acts.',
     };
   }
 
   if (publicState.pendingChallenge) {
     return {
-      instruction: publicState.pendingChallenge.kind === 'block' ? 'A Setting claim can be challenged.' : 'An action claim can be challenged.',
+      instruction: publicState.pendingChallenge.kind === 'block' ? 'Setting can be challenged.' : 'Action can be challenged.',
       waitingContext: `Waiting on ${waiterNames} to Call Bakwaas or Let It Slide.`,
-      nextStep: 'All passes continue the scene; one Bakwaas call forces proof and a burn.',
-      actionGuidance: 'Actions are paused until the response window closes.',
-      responseGuidance: 'No response is available unless you are an eligible challenger.',
+      nextStep: 'Call or pass.',
+      actionGuidance: 'Paused for replies.',
+      responseGuidance: 'Only eligible challengers reply.',
     };
   }
 
   if (publicState.phase === 'BLOCK_WINDOW' && publicState.pendingAction) {
     return {
-      instruction: `${actionLabel} may be stopped with Setting.`,
+      instruction: `${actionLabel} can be stopped with Setting.`,
       waitingContext: publicState.pendingAction.targetId ? `Waiting on ${targetName} to Use Setting or pass.` : 'Waiting on eligible non-actors to Use Setting or pass.',
-      nextStep: 'Passing resolves the action; using Setting may trigger Bakwaas on the blocker.',
-      actionGuidance: 'Actions are paused while the Setting window is open.',
-      responseGuidance: 'No response is available unless you are eligible to block.',
+      nextStep: 'Block or pass.',
+      actionGuidance: 'Paused for Setting.',
+      responseGuidance: 'Only eligible blockers reply.',
     };
   }
 
   if (publicState.phase === 'TURN_START') {
     return {
-      instruction: `${actorName} is choosing a scene.`,
+      instruction: `${actorName} is choosing a move.`,
       waitingContext: `Waiting on ${actorName} to declare an action.`,
-      nextStep: 'After declaration, the table will show who can Call Bakwaas or Use Setting.',
-      actionGuidance: 'Actions appear only for the active player.',
+      nextStep: 'Then replies appear if needed.',
+      actionGuidance: 'Only active player moves.',
       responseGuidance: 'No response is required until a claim or block is declared.',
     };
   }
@@ -176,17 +176,17 @@ function buildGameplayGuide(publicState: PublicGameState | null, privateState: P
       instruction: 'Game over. The winner is locked in.',
       waitingContext: 'No more responses are pending.',
       nextStep: 'Host can reset for another game.',
-      actionGuidance: 'No actions are available after game over.',
-      responseGuidance: 'No responses are available after game over.',
+      actionGuidance: 'Game is done.',
+      responseGuidance: 'Game is done.',
     };
   }
 
   return {
-    instruction: `${gamePhaseLabel(publicState.phase)} is resolving.`,
+    instruction: `${gamePhaseLabel(publicState.phase)} resolving.`,
     waitingContext: publicState.currentScene,
-    nextStep: 'The host will advance the table after this step resolves.',
-    actionGuidance: 'Actions are paused until your next turn.',
-    responseGuidance: 'Response buttons appear here when you are the required responder.',
+    nextStep: 'Play continues automatically.',
+    actionGuidance: 'Wait for your turn.',
+    responseGuidance: 'Reply buttons appear when needed.',
   };
 }
 

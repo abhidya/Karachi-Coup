@@ -88,18 +88,18 @@ describe('integrated gameplay guidance UI', () => {
     expect(html).toContain('Ask the host to keep their tab open');
   });
 
-  it('renders table instruction, next step, action guidance, and response guidance together', () => {
+  it('renders one clear primary move zone with table instruction and next step', () => {
     const state = publicState();
     const html = renderToStaticMarkup(
       React.createElement(GameScreen, {
         currentScene: state.currentScene,
         phaseLabel: 'Turn Start',
         publicState: state,
-        tableInstruction: 'It is your turn. Choose one legal scene to declare.',
-        waitingContext: 'The table is waiting on your action declaration.',
-        nextStep: 'Choose a target when required, then the host opens response windows.',
-        actionGuidance: 'Each card shows cost, target, role claim, Bakwaas, and Setting consequences.',
-        responseGuidance: 'Response buttons appear here when you are the required responder.',
+        tableInstruction: 'Your turn. Pick one move.',
+        waitingContext: 'Everyone is waiting for you.',
+        nextStep: 'Pick a move. Target if asked.',
+        actionGuidance: 'Tap a move card.',
+        responseGuidance: 'No reply needed. Make your move.',
         publicPlayers: state.players,
         activePlayerName: 'Ari',
         privateState: {
@@ -145,12 +145,11 @@ describe('integrated gameplay guidance UI', () => {
       }),
     );
 
-    expect(html).toContain('Current scene');
-    expect(html).toContain('Required response');
-    expect(html).toContain('Turn actions');
-    expect(html).toContain('It is your turn. Choose one legal scene to declare.');
-    expect(html).toContain('Next: Choose a target when required');
-    expect(html).toContain('Each card shows cost, target, role claim, Bakwaas, and Setting consequences.');
-    expect(html).toContain('Response buttons appear here when you are the required responder.');
+    expect(html).toContain('Now');
+    expect(html).toContain('Moves');
+    expect(html).not.toContain('Reply</p>');
+    expect(html).toContain('Your turn. Pick one move.');
+    expect(html).toContain('Next: Pick a move. Target if asked.');
+    expect(html).toContain('Tap a move card.');
   });
 });

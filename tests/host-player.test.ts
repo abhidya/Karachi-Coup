@@ -117,4 +117,26 @@ describe('host player', () => {
     expect(host.snapshot.privateStates[hostId]?.isTurn).toBe(false);
   });
 
+  it('host player: stale connection close does not disconnect a rejoined player', async () => {
+    peers.length = 0;
+    const host = await createPeerHost('ROOMH4');
+    const peer = peers[0]!;
+    peer.emit('open', 'ROOMH4');
+
+    const oldConn = peer.connect('remote-peer-old');
+    peer.emit('connection', oldConn);
+    oldConn.emit('data', { type: 'JOIN', roomCode: 'ROOMH4', displayName: 'Guest', clientNonce: 'guest-nonce' });
+    const playerId = host.snapshot.players[0]?.playerId;
+
+    const newConn = peer.connect('remote-peer-new');
+    peer.emit('connection', newConn);
+    newConn.emit('data', { type: 'JOIN', roomCode: 'ROOMH4', displayName: 'Guest', clientNonce: 'guest-nonce' });
+
+    oldConn.close();
+
+    expect(host.snapshot.players).toHaveLength(1);
+    expect(host.snapshot.players[0]?.playerId).toBe(playerId);
+    expect(host.snapshot.players[0]?.connected).toBe(true);
+  });
+
 });
