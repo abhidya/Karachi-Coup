@@ -28,6 +28,7 @@ type HostPeerInstance = {
   id: string | null;
   on: (event: string, handler: (...args: any[]) => void) => void;
   destroy: () => void;
+  reconnect: () => void;
 };
 
 type HostConnection = {
@@ -405,6 +406,20 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     const playerId: PlayerId =
       existingId ??
       makePlayerId(roomId, message.clientNonce, new Set(Object.keys(state.playersById).map((value) => toPlayerId(value))));
+
+    // Clean up any stale connection for this player
+    connections.forEach((conn, peerId) => {
+      if (conn.playerId === playerId && peerId !== connection.peer) {
+        console.log(`[Host] Closing stale connection for player ${playerId} (peer: ${peerId})`);
+        try {
+          conn.connection.close();
+        } catch (err) {
+          // Ignore
+        }
+        connections.delete(peerId);
+      }
+    });
+
     const previousPlayer = state.playersById[playerId];
     const nextPlayer =
       previousPlayer ?? {
@@ -497,11 +512,16 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     }
   };
 
+  const hostPeerId = `karachi-coup-room-${roomId.toUpperCase()}`;
   try {
-    peer = new Peer(roomId, {
+    peer = new Peer(hostPeerId, {
       debug: 0,
       config: {
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+        ],
       },
     });
   } catch (error) {
@@ -547,6 +567,11 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     };
     listeners.forEach((listener) => listener(snapshot));
     broadcastState('host:open');
+  });
+
+  peer.on('disconnected', () => {
+    console.log('[Host] Peer disconnected from signaling server, reconnecting...');
+    peer?.reconnect();
   });
 
   peer.on('connection', (connection: unknown) => {
@@ -605,12 +630,27 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     });
   });
 
-  peer.on('error', (error: unknown) => {
+  peer.on('error', (error: any) => {
+    let message = 'An unexpected matchmaking error occurred.';
+    if (error && typeof error === 'object') {
+      const type = error.type;
+      const rawMessage = error.message;
+      if (type === 'unavailable-id') {
+        message = `Room code "${roomId}" is already hosting a game in another tab or by another player. Please recreate the room or try a different room code.`;
+      } else if (type === 'network') {
+        message = 'Lost connection to the PeerJS signaling server. Retrying...';
+      } else if (type === 'webrtc') {
+        message = 'WebRTC error: Failed to negotiate peer-to-peer connection. This can be caused by a strict NAT or firewall.';
+      } else if (rawMessage) {
+        message = rawMessage;
+      }
+    }
+
     snapshot = {
       ...snapshot,
       phase: 'error',
-      error: error instanceof Error ? error.message : 'Peer host error.',
-      lastEvent: 'host:error',
+      error: message,
+      lastEvent: `host:error:${error?.type || 'unknown'}`,
     };
     listeners.forEach((listener) => listener(snapshot));
   });

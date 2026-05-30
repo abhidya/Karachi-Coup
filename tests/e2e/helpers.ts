@@ -2,7 +2,8 @@ import { expect, type Browser, type Page } from '@playwright/test';
 import { hostStorageKey } from '../../src/network/storage';
 
 export async function createHostedRoom(page: Page, hostName: string) {
-  await page.goto('./');
+  const url = process.env.E2E_SIMULATE_WAN === '1' ? './?webrtc_mode=wan' : './';
+  await page.goto(url);
   await page.getByLabel('Your name').fill(hostName);
   await page.getByTestId('create-room-button').click();
 
@@ -18,7 +19,8 @@ export async function createHostedRoom(page: Page, hostName: string) {
 }
 
 export async function joinRoom(page: Page, roomCode: string, playerName: string) {
-  await page.goto(`./#/join?room=${roomCode}`);
+  const modeParam = process.env.E2E_SIMULATE_WAN === '1' ? '&webrtc_mode=wan' : '';
+  await page.goto(`./#/join?room=${roomCode}${modeParam}`);
   await expect(page.getByTestId('join-code-input')).toHaveValue(roomCode);
   await page.getByTestId('join-code-input').fill(roomCode);
   await page.getByLabel('Your name').fill(playerName);
