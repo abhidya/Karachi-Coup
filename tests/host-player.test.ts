@@ -139,4 +139,22 @@ describe('host player', () => {
     expect(host.snapshot.players[0]?.connected).toBe(true);
   });
 
+  it('host player: eager resync before join is ignored and later join still syncs', async () => {
+    peers.length = 0;
+    const host = await createPeerHost('ROOMH5');
+    const peer = peers[0]!;
+    peer.emit('open', 'ROOMH5');
+
+    const conn = peer.connect('remote-peer');
+    peer.emit('connection', conn);
+    conn.emit('data', { type: 'REQUEST_RESYNC' });
+    expect(conn.sent).toHaveLength(0);
+    expect(host.snapshot.lastEvent).toContain('host:resync-before-join');
+
+    conn.emit('data', { type: 'JOIN', roomCode: 'ROOMH5', displayName: 'Guest', clientNonce: 'guest-nonce' });
+
+    expect(conn.sent.slice(0, 3).map((message) => (message as { type?: string }).type)).toEqual(['WELCOME', 'PUBLIC_STATE', 'PRIVATE_STATE']);
+    expect(host.snapshot.players[0]?.name).toBe('Guest');
+  });
+
 });

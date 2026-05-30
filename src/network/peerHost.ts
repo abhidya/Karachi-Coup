@@ -454,7 +454,11 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       } else if (current.playerId) {
         sendMessage(connection, { type: 'ERROR', message: 'Connection has been superseded.' });
       } else {
-        sendMessage(connection, { type: 'ERROR', message: 'Join before requesting a resync.' });
+        // Some browsers/PeerJS transports can deliver an eager resync before the JOIN
+        // payload on a fresh data channel. Do not turn that harmless ordering race into
+        // a client-visible error; the JOIN that follows will perform the authoritative
+        // welcome/public/private sync.
+        emit(snapshot.phase === 'ready' ? 'ready' : snapshot.phase, `host:resync-before-join:${connection.peer}`, null);
       }
       return;
     }

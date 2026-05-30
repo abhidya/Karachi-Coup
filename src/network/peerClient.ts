@@ -230,8 +230,6 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
       clientNonce: snapshot.clientNonce,
     };
     connection.send(joinMessage);
-    const resyncMessage: ClientResyncMessage = { type: 'REQUEST_RESYNC' };
-    connection.send(resyncMessage);
     startSyncTimeout();
   };
 
