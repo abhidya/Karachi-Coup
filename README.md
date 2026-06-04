@@ -23,6 +23,8 @@ npm install
 npm run dev
 ```
 
+The dev server prints the local URL, usually `http://localhost:5173/`. For a quick demo, create a host room in one browser tab and join from additional tabs or devices with the shared room code. Keep the host tab open because it owns the authoritative game state.
+
 ## Test
 
 ```bash
@@ -55,6 +57,8 @@ npm run build
 npm run preview
 ```
 
+Use preview after `npm run build` to smoke-test the same static assets that GitHub Pages will serve.
+
 ## GitHub Pages deployment
 
 The Vite base path is set for `/Karachi-Coup/`.
@@ -64,6 +68,12 @@ Use the GitHub Actions workflow in `.github/workflows/deploy.yml` to build and p
 GitHub Pages Source should be set to **GitHub Actions**. The generated `dist/` folder is uploaded as the Pages artifact and should not be committed to the repo.
 
 If the deployed URL is blank or stale, check the Actions logs and confirm `dist/index.html` was created successfully.
+
+## Demo Limitations
+
+- The app is static, but multiplayer setup depends on PeerJS signaling and browser-to-browser connectivity.
+- The host is authoritative; if the host browser closes, the room cannot continue.
+- GitHub Pages refresh safety is handled by hash routing, so share the in-app room link rather than a deep server path.
 
 ## How to play
 
