@@ -23,6 +23,7 @@ import { formatRoomLink } from './routing';
 import { createPeerClient, type ClientNetworkSnapshot, type PeerClientHandle } from './network/peerClient';
 import { createPeerHost, type HostNetworkSnapshot, type PeerHostHandle } from './network/peerHost';
 import { readSessionStorage, sessionStorageKey, writeSessionStorage } from './network/storage';
+import { readNetworkDiagnostic } from './network/diagnostics';
 
 
 type GameplayGuide = {
@@ -605,10 +606,17 @@ export function App() {
   };
 
   const publicSummary = publicState ? `${gamePhaseLabel(publicState.phase)} · ${publicState.currentScene}` : 'Waiting for room sync';
-  const connectionIssue =
-    mode === 'client' && clientSnapshot?.phase === 'error'
-      ? clientSnapshot.error || 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.'
-      : null;
+  const connectionIssue = (() => {
+    if (mode === 'client' && clientSnapshot?.phase === 'error') {
+      const baseErr = clientSnapshot.error || 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.';
+      const diagnostic = readNetworkDiagnostic();
+      if (diagnostic) {
+        return `${baseErr} Last network stage: ${diagnostic.stage} at ${diagnostic.at}`;
+      }
+      return baseErr;
+    }
+    return null;
+  })();
   const activePlayerName = turnOwner?.name ?? null;
   const hostStatus = hostSnapshot ? `${hostSnapshot.phase} · ${snapshotActivity(hostSnapshot)}` : 'Not opened yet';
   const clientStatus = clientSnapshot ? `${clientSnapshot.phase} · ${snapshotActivity(clientSnapshot)}` : 'Not opened yet';

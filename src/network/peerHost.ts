@@ -19,6 +19,9 @@ import type {
 } from '../game/types';
 import { createHostGameState } from '../game/rules';
 import { hostStorageKey, readLocalStorage, writeLocalStorage } from './storage';
+import { peerOptions } from './peerOptions';
+import { recordNetworkStage } from './diagnostics';
+
 
 type PeerModule = {
   default: new (id?: string, options?: Record<string, unknown>) => HostPeerInstance;
@@ -27,6 +30,7 @@ type PeerModule = {
 type HostPeerInstance = {
   id: string | null;
   on: (event: string, handler: (...args: any[]) => void) => void;
+  off?: (event?: string, handler?: (...args: any[]) => void) => void;
   destroy: () => void;
   reconnect: () => void;
 };
@@ -35,6 +39,7 @@ type HostConnection = {
   peer: string;
   open: boolean;
   on: (event: string, handler: (...args: any[]) => void) => void;
+  off?: (event?: string, handler?: (...args: any[]) => void) => void;
   send: (data: unknown) => void;
   close: () => void;
 };
@@ -54,6 +59,18 @@ type StoredHostIdentity = {
   displayName: string;
   playerId: string | null;
 };
+
+const RECONNECT_INITIAL_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+
+function reconnectDelay(attempt: number): number {
+  return Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_INITIAL_DELAY_MS * 2 ** attempt);
+}
+
+function isReconnectablePeerError(error: any): boolean {
+  if (!error || typeof error !== 'object') return false;
+  return ['network', 'server-error', 'socket-error', 'socket-closed'].includes(error.type);
+}
 
 export type HostNetworkPhase = 'idle' | 'starting' | 'ready' | 'error' | 'closed';
 
@@ -284,6 +301,15 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   let snapshot = buildSnapshot('starting', roomId, null, connections, state, null, null, Boolean(storedState));
   let destroyed = false;
   let nextConnectionGeneration = 1;
+  let reconnectTimeout: number | null = null;
+  let reconnectAttempts = 0;
+
+  const clearReconnectTimeout = () => {
+    if (reconnectTimeout) {
+      window.clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+  };
 
   const emit = (nextPhase: HostNetworkPhase = snapshot.phase, lastEvent = snapshot.lastEvent, error = snapshot.error) => {
     persistState(roomId, state);
@@ -306,6 +332,26 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   const setState = (nextState: HostGameState, eventLabel: string) => {
     state = nextState;
     broadcastState(eventLabel);
+  };
+
+  const scheduleReconnect = (reason: string) => {
+    if (destroyed || reconnectTimeout) return;
+
+    const delayMs = reconnectDelay(reconnectAttempts);
+    recordNetworkStage('host:reconnect-scheduled', { reason, delayMs });
+    emit(snapshot.phase === 'closed' ? 'starting' : snapshot.phase, `host:reconnect-scheduled:${reason}`, snapshot.error);
+
+    reconnectTimeout = window.setTimeout(() => {
+      reconnectTimeout = null;
+      reconnectAttempts += 1;
+      try {
+        peer?.reconnect();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Peer host reconnect failed.';
+        recordNetworkStage('host:reconnect-error', { reason, error: message });
+        scheduleReconnect('reconnect-error');
+      }
+    }, delayMs);
   };
 
   const ensureHostPlayer = (displayName: string, suppressBroadcast = false): PlayerId => {
@@ -408,10 +454,18 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       makePlayerId(roomId, message.clientNonce, new Set(Object.keys(state.playersById).map((value) => toPlayerId(value))));
 
     // Clean up any stale connection for this player
+    const staleKeys: string[] = [];
     connections.forEach((conn, peerId) => {
       if (conn.playerId === playerId && peerId !== connection.peer) {
+        staleKeys.push(peerId);
+      }
+    });
+    staleKeys.forEach((peerId) => {
+      const conn = connections.get(peerId);
+      if (conn) {
         console.log(`[Host] Closing stale connection for player ${playerId} (peer: ${peerId})`);
         try {
+          conn.connection.off?.();
           conn.connection.close();
         } catch (err) {
           // Ignore
@@ -447,8 +501,11 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
 
     connections.set(connection.peer, { ...joined, playerId });
     activeConnectionGenerations.set(playerId, joined.generation);
+    recordNetworkStage('host:join-received', { peer: connection.peer, displayName: message.displayName });
     syncConnection(connection, playerId, state);
+    recordNetworkStage('host:sync-completed', { peer: connection.peer, playerId });
     broadcastState(`host:join:${playerId}`);
+    recordNetworkStage('host:broadcast-completed', { playerId });
   };
 
   const handleMessage = (connection: HostConnection, raw: unknown) => {
@@ -514,16 +571,8 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
 
   const hostPeerId = `karachi-coup-room-${roomId.toUpperCase()}`;
   try {
-    peer = new Peer(hostPeerId, {
-      debug: 0,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-        ],
-      },
-    });
+    recordNetworkStage('host:init-start', { roomId, hostPeerId });
+    peer = new Peer(hostPeerId, peerOptions);
   } catch (error) {
     snapshot = {
       ...snapshot,
@@ -558,10 +607,15 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       return;
     }
 
+    const typedPeerId = typeof peerId === 'string' ? peerId : null;
+    reconnectAttempts = 0;
+    clearReconnectTimeout();
+    recordNetworkStage('host:open', { peerId: typedPeerId });
+
     snapshot = {
       ...snapshot,
       phase: 'ready',
-      peerId: typeof peerId === 'string' ? peerId : null,
+      peerId: typedPeerId,
       lastEvent: 'host:open',
       error: null,
     };
@@ -570,12 +624,12 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   });
 
   peer.on('disconnected', () => {
-    console.log('[Host] Peer disconnected from signaling server, reconnecting...');
-    peer?.reconnect();
+    scheduleReconnect('peer-disconnected');
   });
 
   peer.on('connection', (connection: unknown) => {
     const typedConnection = connection as HostConnection;
+    recordNetworkStage('host:connection-received', { peer: typedConnection.peer });
     const generation = nextConnectionGeneration;
     nextConnectionGeneration += 1;
     connections.set(typedConnection.peer, { connection: typedConnection, playerId: null, generation });
@@ -590,6 +644,7 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     });
 
     typedConnection.on('close', () => {
+      recordNetworkStage('host:connection-closed', { peer: typedConnection.peer });
       const joined = connections.get(typedConnection.peer);
       if (!joined || joined.connection !== typedConnection) {
         return;
@@ -620,10 +675,11 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     });
 
     typedConnection.on('error', (error: unknown) => {
+      const errMsg = error instanceof Error ? error.message : 'Peer connection error.';
+      recordNetworkStage('host:error', { peer: typedConnection.peer, error: errMsg });
       snapshot = {
         ...snapshot,
-        phase: 'error',
-        error: error instanceof Error ? error.message : 'Peer connection error.',
+        error: errMsg,
         lastEvent: `host:error:${typedConnection.peer}`,
       };
       listeners.forEach((listener) => listener(snapshot));
@@ -646,6 +702,8 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       }
     }
 
+    recordNetworkStage('host:error', { errorType: error?.type || 'unknown', errorMessage: message });
+
     snapshot = {
       ...snapshot,
       phase: 'error',
@@ -653,6 +711,9 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       lastEvent: `host:error:${error?.type || 'unknown'}`,
     };
     listeners.forEach((listener) => listener(snapshot));
+    if (isReconnectablePeerError(error)) {
+      scheduleReconnect('peer-error');
+    }
   });
 
   return {
@@ -714,9 +775,14 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     },
     destroy() {
       destroyed = true;
-      connections.forEach(({ connection }) => connection.close());
+      clearReconnectTimeout();
+      connections.forEach(({ connection }) => {
+        try { connection.off?.(); } catch {}
+        try { connection.close(); } catch {}
+      });
       connections.clear();
-      peer?.destroy();
+      try { peer?.off?.(); } catch {}
+      try { peer?.destroy(); } catch {}
       snapshot = {
         ...snapshot,
         phase: 'closed',

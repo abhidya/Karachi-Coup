@@ -13,6 +13,8 @@ import type {
   PlayerId,
 } from '../game/types';
 import { clientStorageKey, readLocalStorage, writeLocalStorage, writeSessionStorage, sessionStorageKey } from './storage';
+import { peerOptions } from './peerOptions';
+import { recordNetworkStage } from './diagnostics';
 
 type PeerModule = {
   default: new (id?: string, options?: Record<string, unknown>) => ClientPeerInstance;
@@ -21,6 +23,7 @@ type PeerModule = {
 type ClientPeerInstance = {
   id: string | null;
   on: (event: string, handler: (...args: any[]) => void) => void;
+  off?: (event?: string, handler?: (...args: any[]) => void) => void;
   destroy: () => void;
   reconnect: () => void;
   connect: (peerId: string, options?: Record<string, unknown>) => ClientConnection;
@@ -30,6 +33,7 @@ type ClientConnection = {
   peer: string;
   open: boolean;
   on: (event: string, handler: (...args: any[]) => void) => void;
+  off?: (event?: string, handler?: (...args: any[]) => void) => void;
   send: (data: unknown) => void;
   close: () => void;
 };
@@ -114,6 +118,17 @@ function persistIdentity(identity: StoredClientIdentity): void {
 
 const HOST_UNREACHABLE_MESSAGE = 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.';
 const HOST_SYNC_TIMEOUT_MS = 12_000;
+const RECONNECT_INITIAL_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+
+function reconnectDelay(attempt: number): number {
+  return Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_INITIAL_DELAY_MS * 2 ** attempt);
+}
+
+function isReconnectablePeerError(error: any): boolean {
+  if (!error || typeof error !== 'object') return false;
+  return ['network', 'server-error', 'socket-error', 'socket-closed'].includes(error.type);
+}
 
 function peerErrorMessage(error: any, fallback: string): string {
   if (error && typeof error === 'object') {
@@ -204,11 +219,21 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
   };
   let destroyed = false;
   let syncTimeout: number | null = null;
+  let reconnectTimeout: number | null = null;
+  let reconnectAttempts = 0;
+  let connectingPeer = false;
 
   const clearSyncTimeout = () => {
     if (syncTimeout) {
       window.clearTimeout(syncTimeout);
       syncTimeout = null;
+    }
+  };
+
+  const clearReconnectTimeout = () => {
+    if (reconnectTimeout) {
+      window.clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
     }
   };
 
@@ -246,8 +271,14 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
       displayName: snapshot.displayName,
       clientNonce: snapshot.clientNonce,
     };
-    connection.send(joinMessage);
-    startSyncTimeout();
+    recordNetworkStage('client:sending-join', { roomCode: joinMessage.roomCode, displayName: joinMessage.displayName });
+    try {
+      connection.send(joinMessage);
+      startSyncTimeout();
+    } catch (err) {
+      console.error('[Client] Failed to send JOIN message:', err);
+      recordNetworkStage('client:send-join-error', { error: String(err) });
+    }
   };
 
   const applyServerMessage = (message: unknown) => {
@@ -264,6 +295,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
 
     if (isWelcomeMessage(message)) {
       clearSyncTimeout();
+      recordNetworkStage('client:welcome-received', { roomId: message.roomCode, playerId: message.playerId });
       snapshot = {
         ...snapshot,
         phase: 'joined',
@@ -280,6 +312,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
 
     if (isPublicMessage(message)) {
       clearSyncTimeout();
+      recordNetworkStage('client:public-state-received', { phase: message.state.phase });
       snapshot = {
         ...snapshot,
         phase: snapshot.playerId ? 'synced' : 'joined',
@@ -293,6 +326,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
 
     if (isPrivateMessage(message)) {
       clearSyncTimeout();
+      recordNetworkStage('client:private-state-received', { phase: message.state.phase });
       snapshot = {
         ...snapshot,
         phase: 'synced',
@@ -327,31 +361,48 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
 
   const hostPeerId = `karachi-coup-room-${roomId.toUpperCase()}`;
 
-  const connectToPeer = () => {
-    if (destroyed) return;
+  const scheduleReconnect = (reason: string) => {
+    if (destroyed || reconnectTimeout || connectingPeer) return;
 
+    const delayMs = reconnectDelay(reconnectAttempts);
+    recordNetworkStage('client:reconnect-scheduled', { reason, delayMs });
+    snapshot = {
+      ...snapshot,
+      phase: snapshot.phase === 'synced' || snapshot.phase === 'joined' ? snapshot.phase : 'connecting',
+      error: snapshot.error ?? 'Connection is offline. Retrying shortly.',
+      lastMessage: `client:reconnect-scheduled:${reason}`,
+    };
+    emit();
+
+    reconnectTimeout = window.setTimeout(() => {
+      reconnectTimeout = null;
+      reconnectAttempts += 1;
+      connectToPeer();
+    }, delayMs);
+  };
+
+  const connectToPeer = () => {
+    if (destroyed || connectingPeer) return;
+
+    connectingPeer = true;
     clearSyncTimeout();
+    clearReconnectTimeout();
     if (connection) {
+      try { connection.off?.(); } catch {}
       try { connection.close(); } catch {}
       connection = null;
     }
     if (peer) {
+      try { peer.off?.(); } catch {}
       try { peer.destroy(); } catch {}
       peer = null;
     }
 
     try {
-      peer = new Peer(undefined, {
-        debug: 0,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-          ],
-        },
-      });
+      recordNetworkStage('client:init-start', { hostPeerId });
+      peer = new Peer(undefined, peerOptions);
     } catch (error) {
+      connectingPeer = false;
       snapshot = {
         ...snapshot,
         phase: 'error',
@@ -368,6 +419,11 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
         return;
       }
 
+      connectingPeer = false;
+      reconnectAttempts = 0;
+      clearReconnectTimeout();
+      recordNetworkStage('client:open', { peerId: typedPeerId });
+
       snapshot = {
         ...snapshot,
         phase: 'connecting',
@@ -377,6 +433,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
       };
       emit();
 
+      recordNetworkStage('client:connecting-start', { hostPeerId });
       connection = peer ? peer.connect(hostPeerId, {
         reliable: true,
       }) : null;
@@ -393,6 +450,9 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
       }
 
       connection.on('open', () => {
+        reconnectAttempts = 0;
+        clearReconnectTimeout();
+        recordNetworkStage('client:connected', { hostPeerId });
         snapshot = {
           ...snapshot,
           phase: 'connecting',
@@ -410,6 +470,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
 
       connection.on('close', () => {
         clearSyncTimeout();
+        recordNetworkStage('client:connection-closed');
         snapshot = {
           ...snapshot,
           phase: 'closed',
@@ -421,10 +482,12 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
 
       connection.on('error', (error: unknown) => {
         clearSyncTimeout();
+        const errMsg = peerErrorMessage(error, HOST_UNREACHABLE_MESSAGE);
+        recordNetworkStage('client:error', { context: 'connection', error: errMsg });
         snapshot = {
           ...snapshot,
           phase: 'error',
-          error: peerErrorMessage(error, HOST_UNREACHABLE_MESSAGE),
+          error: errMsg,
           lastMessage: 'client:error',
         };
         emit();
@@ -432,19 +495,25 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     });
 
     peer.on('disconnected', () => {
-      console.log('[Client] Peer disconnected from signaling server, reconnecting...');
-      peer?.reconnect();
+      connectingPeer = false;
+      scheduleReconnect('peer-disconnected');
     });
 
     peer.on('error', (error: unknown) => {
+      connectingPeer = false;
       clearSyncTimeout();
+      const errMsg = peerErrorMessage(error, HOST_UNREACHABLE_MESSAGE);
+      recordNetworkStage('client:error', { context: 'peer', error: errMsg });
       snapshot = {
         ...snapshot,
         phase: 'error',
-        error: peerErrorMessage(error, HOST_UNREACHABLE_MESSAGE),
+        error: errMsg,
         lastMessage: 'client:error',
       };
       emit();
+      if (isReconnectablePeerError(error)) {
+        scheduleReconnect('peer-error');
+      }
     });
   };
 
@@ -462,34 +531,46 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
     },
     send(data: ClientMessage) {
       if (connection?.open) {
-        connection.send(data);
-        snapshot = {
-          ...snapshot,
-          lastMessage: `client:send:${data.type}`,
-        };
-        emit();
+        try {
+          connection.send(data);
+          snapshot = {
+            ...snapshot,
+            lastMessage: `client:send:${data.type}`,
+          };
+          emit();
+        } catch (err) {
+          console.error('[Client] Failed to send message:', err);
+          recordNetworkStage('client:send-error', { messageType: data.type, error: String(err) });
+        }
       }
     },
     requestResync() {
       if (connection?.open) {
         const message: ClientResyncMessage = { type: 'REQUEST_RESYNC' };
-        connection.send(message);
-        startSyncTimeout();
-        snapshot = {
-          ...snapshot,
-          lastMessage: 'client:resync',
-        };
-        emit();
+        try {
+          connection.send(message);
+          startSyncTimeout();
+          snapshot = {
+            ...snapshot,
+            lastMessage: 'client:resync',
+          };
+          emit();
+        } catch (err) {
+          console.error('[Client] Failed to send resync message:', err);
+          recordNetworkStage('client:send-resync-error', { error: String(err) });
+        }
       } else {
-        console.log('[Client] Connection is not open. Re-initiating full connection...');
-        connectToPeer();
+        scheduleReconnect('manual-resync');
       }
     },
     destroy() {
       destroyed = true;
       clearSyncTimeout();
-      connection?.close();
-      peer?.destroy();
+      clearReconnectTimeout();
+      try { connection?.off?.(); } catch {}
+      try { connection?.close(); } catch {}
+      try { peer?.off?.(); } catch {}
+      try { peer?.destroy(); } catch {}
       snapshot = {
         ...snapshot,
         phase: 'closed',
