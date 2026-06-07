@@ -82,7 +82,7 @@ export async function createThreePlayerLobby(browser: Browser) {
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('Unable to create a three-player PeerJS lobby.');
+  throw lastError instanceof Error ? lastError : new Error('Unable to create a three-player P2P lobby.');
 }
 
 export async function activePlayerName(page: Page) {

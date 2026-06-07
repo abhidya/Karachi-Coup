@@ -78,7 +78,6 @@ describe('integrated gameplay guidance UI', () => {
         connectionIssue: 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.',
         onStartGame: () => undefined,
         onResetRoom: () => undefined,
-        onRequestResync: () => undefined,
         onLeaveRoom: () => undefined,
         onOpenRules: () => undefined,
       }),
@@ -86,6 +85,37 @@ describe('integrated gameplay guidance UI', () => {
 
     expect(html).toContain('Could not reach the room host');
     expect(html).toContain('Ask the host to keep their tab open');
+  });
+
+  it('explains the six-player room cap instead of leaving Start as a silent no-op', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(LobbyScreen, {
+        roomCode: 'U9VGH',
+        roomLink: 'https://abhidya.github.io/Karachi-Coup/#/join?room=U9VGH',
+        currentScene: 'Waiting for players.',
+        players: Array.from({ length: 7 }, (_, index) => ({
+          playerId: `p${index + 1}`,
+          name: `Player ${index + 1}`,
+          rupees: 0,
+          hiddenConnectionCount: 0,
+          connected: true,
+          eliminated: false,
+        })),
+        phaseLabel: 'Lobby',
+        turnOwnerName: 'Waiting',
+        mode: 'host',
+        canStartGame: false,
+        roomLimitMessage: 'Game supports up to 6 players. Ask extra players to leave or reset the room before starting.',
+        onStartGame: () => undefined,
+        onResetRoom: () => undefined,
+        onLeaveRoom: () => undefined,
+        onOpenRules: () => undefined,
+      }),
+    );
+
+    expect(html).toContain('Game supports up to 6 players');
+    expect(html).toContain('Start game');
+    expect(html).toContain('disabled');
   });
 
   it('renders one clear primary move zone with table instruction and next step', () => {

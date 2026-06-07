@@ -10,6 +10,9 @@ type ActionConfig = {
   blockRoles: Role[];
 };
 
+export const MIN_PLAYERS = 2;
+export const MAX_PLAYERS = 6;
+
 export const ACTION_CONFIG: Record<ActionType, ActionConfig> = {
   CHAI_PAISA: { labelKey: 'CHAI_PAISA', cost: 0, claimedRole: null, needsTarget: false, challengeable: false, blockRoles: [] },
   RISHTEDAAR_HELP: { labelKey: 'RISHTEDAAR_HELP', cost: 0, claimedRole: null, needsTarget: false, challengeable: false, blockRoles: ['MALIK_SAAB'] },

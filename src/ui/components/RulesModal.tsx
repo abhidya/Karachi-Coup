@@ -10,7 +10,7 @@ type RulesModalProps = {
 
 export function RulesModal({ onClose }: RulesModalProps) {
   return (
-    <Modal title="How to play Karachi Coup" subtitle="Quick rules, action guide, and PeerJS note" onClose={onClose}>
+    <Modal title="How to play Karachi Coup" subtitle="Quick rules, action guide, and P2P table note" onClose={onClose}>
       <Stack gap="lg">
         <Panel eyebrow="Quick rules" title="The table basics">
           <Stack gap="sm">
@@ -58,7 +58,7 @@ export function RulesModal({ onClose }: RulesModalProps) {
           </Panel>
         </Row>
 
-        <Panel eyebrow="Host note" title="PeerJS and table rules">
+        <Panel eyebrow="Host note" title="P2P table rules">
           <Stack gap="sm">
             <p className="muted">{rulesGuide.peerRules[0]}</p>
             <p className="muted">{rulesGuide.peerRules[1]}</p>

@@ -13,6 +13,10 @@ const STORM_PATTERNS = [
   /Peer disconnected from signaling server, reconnecting/i,
 ];
 
+const BENIGN_CONSOLE_ERROR_PATTERNS = [
+  /Trystero peer error: OperationError: User-Initiated Abort, reason=Close called/i,
+];
+
 function attachRuntimeLog(page: Page, label: string): RuntimeLog {
   const log: RuntimeLog = { console: [], pageErrors: [], requestFailures: [], crashes: [] };
 
@@ -39,7 +43,10 @@ function stormMessages(logs: RuntimeLog[]): string[] {
 }
 
 function consoleErrors(logs: RuntimeLog[]): string[] {
-  return logs.flatMap((log) => log.console).filter((message) => /\] error:/i.test(message));
+  return logs
+    .flatMap((log) => log.console)
+    .filter((message) => /\] error:/i.test(message))
+    .filter((message) => !BENIGN_CONSOLE_ERROR_PATTERNS.some((pattern) => pattern.test(message)));
 }
 
 async function createHostedRoom(page: Page, hostName: string): Promise<string> {
@@ -64,7 +71,7 @@ async function joinHostedRoom(page: Page, roomCode: string, playerName: string):
   await expect(page.getByTestId('current-scene')).toBeVisible();
 }
 
-test('production multi-client lobby does not reconnect-storm while waiting', async ({ browser }) => {
+test('production multi-client lobby survives client refreshes without reconnect storms', async ({ browser }) => {
   test.setTimeout(120_000);
 
   const hostContext = await browser.newContext({ ...devices['Desktop Chrome'] });
@@ -92,9 +99,10 @@ test('production multi-client lobby does not reconnect-storm while waiting', asy
     await expect(iphonePage.locator('body')).toContainText('Host Chrome', { timeout: 60_000 });
 
     for (const page of [pixelPage, iphonePage]) {
-      for (let index = 0; index < 3; index += 1) {
-        await page.getByTestId('request-resync-button').click();
-      }
+      await expect(page.getByTestId('request-resync-button')).toHaveCount(0);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page).toHaveURL(new RegExp(`#\\/lobby\\?room=${roomCode}`));
+      await expect(page.getByTestId('current-scene')).toBeVisible();
     }
 
     await hostPage.waitForTimeout(10_000);

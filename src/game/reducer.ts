@@ -10,6 +10,8 @@ import {
   drawCards,
   firstAlivePlayerId,
   isPlayerAlive,
+  MAX_PLAYERS,
+  MIN_PLAYERS,
   nextLivingPlayerId,
   removeConnectionFromPlayer,
   replacePlayer,
@@ -473,7 +475,7 @@ export function reducer(state: HostGameState, event: GameEvent): HostGameState {
   switch (event.type) {
     case 'START_GAME':
       if (state.phase !== 'LOBBY') return state;
-      if (state.turnOrder.length < 2 || state.turnOrder.length > 6) return state;
+      if (state.turnOrder.length < MIN_PLAYERS || state.turnOrder.length > MAX_PLAYERS) return state;
       const shuffled = deckFor(state.roomCode, state.gameId);
       let index = 0;
       const playersById: HostGameState['playersById'] = {};

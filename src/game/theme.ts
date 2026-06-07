@@ -76,7 +76,7 @@ export const rulesGuide = {
     'Full Beizzati, Chai Paisa, Kiraya Collection, and Zardaar Jugaad cannot be blocked.',
   ],
   peerRules: [
-    'Host-authoritative PeerJS. The host owns hidden state and validates every intent.',
+    'Host-authoritative Trystero P2P. The host owns hidden state and validates every intent.',
     'Host creates the room and joins as Player 1 automatically. Other players join by room code. Reconnect is best-effort.',
     'This is for friends and local play, not ranked or competitive play.',
   ],

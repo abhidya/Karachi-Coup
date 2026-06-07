@@ -7,10 +7,8 @@ type JoinRoomScreenProps = {
   onDisplayNameChange: (value: string) => void;
   onJoinRoom: () => void;
   onCreateRoom: () => void;
-  onRequestResync: () => void;
   clientStatus: string;
   connectionIssue?: string | null;
-  clientPlayerId: string;
 };
 
 function friendlyStatus(status: string) {
@@ -27,7 +25,6 @@ export function JoinRoomScreen({
   onDisplayNameChange,
   onJoinRoom,
   onCreateRoom,
-  onRequestResync,
   clientStatus,
   connectionIssue,
 }: JoinRoomScreenProps) {
@@ -50,17 +47,12 @@ export function JoinRoomScreen({
         <Panel eyebrow="Status" title={friendlyStatus(clientStatus)}>
           <Stack gap="sm">
             <p className="guidance-copy guidance-copy--simple" data-testid="client-status">
-              {connectionIssue ? 'Ask the host to keep their tab open, then try again.' : joined ? 'You are in. Wait for the host to start or continue the game.' : joining ? 'Looking for the host tab now.' : 'Enter the code your host shared.'}
+              {connectionIssue ? 'Keep this tab open or refresh the page; reconnect will retry automatically while the host tab stays open.' : joined ? 'You are in. Wait for the host to start or continue the game.' : joining ? 'Looking for the host tab now.' : 'Enter the code your host shared.'}
             </p>
             {connectionIssue ? (
               <p className="error-text" data-testid="connection-issue">
                 {connectionIssue}
               </p>
-            ) : null}
-            {(joined || connectionIssue) ? (
-              <Row>
-                <Button variant="secondary" onClick={onRequestResync} data-testid="request-resync-button">Try sync again</Button>
-              </Row>
             ) : null}
           </Stack>
         </Panel>

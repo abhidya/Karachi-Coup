@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pill } from './components/Ui';
 import { GAME_ASSETS } from './game/assets';
+import { MAX_PLAYERS, MIN_PLAYERS } from './game/rules';
 import { GAME_THEME, labels } from './game/theme';
 import type {
   ActionType,
@@ -467,6 +468,11 @@ export function App() {
   const prompt = privateState?.prompt ?? null;
   const forcedActionType = privateState?.availableActions.length === 1 ? privateState.availableActions[0] ?? null : null;
   const gameplayGuide = buildGameplayGuide(publicState, privateState);
+  const canStartGame = hostPlayers.length >= MIN_PLAYERS && hostPlayers.length <= MAX_PLAYERS;
+  const roomLimitMessage =
+    mode === 'host' && hostPlayers.length > MAX_PLAYERS
+      ? `Game supports up to ${MAX_PLAYERS} players. Ask extra players to leave or reset the room before starting.`
+      : null;
   const screenBackground =
     route === 'home'
       ? GAME_ASSETS.backgrounds.home
@@ -502,6 +508,32 @@ export function App() {
     const joinedId = handle.joinHostPlayer(displayName);
     setHostPlayerId((current) => (current === joinedId ? current : joinedId));
   }, [displayName, hostHandleRef, hostPlayerId, mode, hostSnapshot]);
+
+  useEffect(() => {
+    if (mode !== 'client') return undefined;
+
+    const requestAutomaticResync = () => clientHandleRef.current?.requestResync();
+    const requestWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        requestAutomaticResync();
+      }
+    };
+    const requestAfterPageRestore = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        requestAutomaticResync();
+      }
+    };
+
+    window.addEventListener('online', requestAutomaticResync);
+    window.addEventListener('pageshow', requestAfterPageRestore);
+    document.addEventListener('visibilitychange', requestWhenVisible);
+
+    return () => {
+      window.removeEventListener('online', requestAutomaticResync);
+      window.removeEventListener('pageshow', requestAfterPageRestore);
+      document.removeEventListener('visibilitychange', requestWhenVisible);
+    };
+  }, [clientHandleRef, mode]);
 
   const createRoom = () => {
     const nextRoomId = generateRoomId();
@@ -549,7 +581,6 @@ export function App() {
 
   const startGame = () => hostHandleRef.current?.startGame();
   const resetRoom = () => hostHandleRef.current?.resetRoom();
-  const requestResync = () => clientHandleRef.current?.requestResync();
   const copyRoomLink = async () => {
     try {
       await navigator.clipboard.writeText(roomLink);
@@ -631,7 +662,7 @@ export function App() {
             <h1>Bluff. Setting. Rupees. Full Beizzati.</h1>
             <p className="lede">
               Host runs the table. Players join by room code. Hidden Connections stay private, public snapshots stay
-              clean, and every response prompt is driven by the host-authoritative PeerJS room.
+              clean, and every response prompt is driven by the host-authoritative P2P room.
             </p>
           </div>
           <div className="app-header__meta">
@@ -657,7 +688,7 @@ export function App() {
             roomLink={roomLink}
             players={hostPlayers}
             hostStatus={hostStatus}
-            canStart={hostPlayers.length >= 2}
+            canStart={canStartGame}
             onCopyRoomLink={copyRoomLink}
             onStartGame={startGame}
             onResetRoom={resetRoom}
@@ -674,10 +705,8 @@ export function App() {
             onDisplayNameChange={setDisplayName}
             onJoinRoom={joinRoom}
             onCreateRoom={createRoom}
-            onRequestResync={requestResync}
             clientStatus={clientStatus}
             connectionIssue={connectionIssue}
-            clientPlayerId={clientSnapshot?.playerId ?? ''}
           />
         ) : null}
 
@@ -691,9 +720,10 @@ export function App() {
             turnOwnerName={activePlayerName ?? 'Waiting'}
             mode={mode}
             connectionIssue={connectionIssue}
+            canStartGame={canStartGame}
+            roomLimitMessage={roomLimitMessage}
             onStartGame={startGame}
             onResetRoom={resetRoom}
-            onRequestResync={requestResync}
             onLeaveRoom={leaveRoom}
             onOpenRules={() => setShowRules(true)}
           />

@@ -11,9 +11,10 @@ type LobbyScreenProps = {
   turnOwnerName: string;
   mode: string;
   connectionIssue?: string | null;
+  canStartGame?: boolean;
+  roomLimitMessage?: string | null;
   onStartGame: () => void;
   onResetRoom: () => void;
-  onRequestResync: () => void;
   onLeaveRoom: () => void;
   onOpenRules: () => void;
 };
@@ -27,9 +28,10 @@ export function LobbyScreen({
   turnOwnerName,
   mode,
   connectionIssue,
+  canStartGame = true,
+  roomLimitMessage,
   onStartGame,
   onResetRoom,
-  onRequestResync,
   onLeaveRoom,
   onOpenRules,
 }: LobbyScreenProps) {
@@ -40,8 +42,8 @@ export function LobbyScreen({
           <Stack gap="sm">
             <p className="guidance-copy" data-testid="lobby-guidance">
               {mode === 'host'
-                ? 'Host view: start when everyone is listed and ready. Keep this tab open during play.'
-                : 'Player view: wait here until the host starts. If your hand does not appear after start, request a resync.'}
+                ? 'Host view: start when 2–6 players are listed and ready. Keep this tab open during play.'
+                : 'Player view: wait here until the host starts. Reloading this page rejoins and refreshes automatically.'}
             </p>
             <Row>
               <Pill tone="neutral">Room {roomCode || '—'}</Pill>
@@ -57,6 +59,11 @@ export function LobbyScreen({
                 {connectionIssue}
               </p>
             ) : null}
+            {roomLimitMessage ? (
+              <p className="error-text" data-testid="room-limit-message">
+                {roomLimitMessage}
+              </p>
+            ) : null}
             <p className="mono" data-testid="room-link">
               {roomLink || 'Create or join a room first'}
             </p>
@@ -66,21 +73,16 @@ export function LobbyScreen({
               </Button>
               {mode === 'host' ? (
                 <>
-                  <Button onClick={onStartGame}>Start game</Button>
+                  <Button onClick={onStartGame} disabled={!canStartGame}>Start game</Button>
                   <Button variant="secondary" onClick={onResetRoom}>
                     Reset room
                   </Button>
                 </>
               ) : null}
               {mode === 'client' ? (
-                <>
-                  <Button onClick={onRequestResync} data-testid="request-resync-button">
-                    Request resync
-                  </Button>
-                  <Button variant="secondary" onClick={onLeaveRoom} data-testid="leave-room-button">
-                    Leave room
-                  </Button>
-                </>
+                <Button variant="secondary" onClick={onLeaveRoom} data-testid="leave-room-button">
+                  Leave room
+                </Button>
               ) : null}
             </Row>
           </Stack>

@@ -1,5 +1,6 @@
 import { Button, Panel, Pill, Row, Stack } from '../../components/Ui';
 import { GAME_ASSETS } from '../../game/assets';
+import { MAX_PLAYERS, MIN_PLAYERS } from '../../game/rules';
 import type { HostLobbyPlayerView } from '../../game/types';
 
 type HostLobbyScreenProps = {
@@ -28,6 +29,12 @@ export function HostLobbyScreen({
   onOpenRules,
 }: HostLobbyScreenProps) {
   const hasRoom = Boolean(roomCode);
+  const hasTooManyPlayers = players.length > MAX_PLAYERS;
+  const startHint = hasTooManyPlayers
+    ? `Game supports up to ${MAX_PLAYERS} players. Ask extras to leave or reset the room.`
+    : canStart
+      ? 'Ready to start.'
+      : `Need ${MIN_PLAYERS}–${MAX_PLAYERS} players.`;
 
   return (
     <Stack gap="lg">
@@ -37,7 +44,7 @@ export function HostLobbyScreen({
             <img className="lobby-hero" src={GAME_ASSETS.lobby.hostHero} alt="Host lobby" />
             <p className="guidance-copy" data-testid="host-lobby-guidance">
               {hasRoom
-                ? 'Share this code. Keep this tab open.'
+                ? `Share this code. Game supports ${MIN_PLAYERS}–${MAX_PLAYERS} players; keep this tab open.`
                 : 'Create a room to get a code.'}
             </p>
             <div className="room-code-card" data-testid="room-code">
@@ -72,7 +79,7 @@ export function HostLobbyScreen({
               </Pill>
             </Row>
             <p className="muted">{hasRoom ? 'Keep this device open while friends play.' : 'Create a room before inviting friends.'}</p>
-            <p className="muted">{hasRoom ? (canStart ? 'Ready to start.' : 'Need at least 2 players.') : 'Start unlocks after friends join.'}</p>
+            <p className={hasTooManyPlayers ? 'error-text' : 'muted'} data-testid="start-game-hint">{hasRoom ? startHint : 'Start unlocks after friends join.'}</p>
             <Row>
               <Button onClick={onStartGame} disabled={!hasRoom || !canStart} data-testid="start-game-button">
                 Start game
