@@ -15,6 +15,7 @@ import type {
 import { clientStorageKey, readLocalStorage, writeLocalStorage, writeSessionStorage, sessionStorageKey } from './storage';
 import { recordNetworkStage } from './diagnostics';
 import { joinRoom, selfId, type MessageAction, type Room } from 'trystero';
+import { CLIENT_ACTION, SERVER_ACTION, trysteroConfig } from './trysteroConfig';
 
 type StoredClientIdentity = {
   roomId: string;
@@ -97,9 +98,6 @@ function persistIdentity(identity: StoredClientIdentity): void {
 const HOST_UNREACHABLE_MESSAGE = 'Could not reach the room host. Ask the host to keep their tab open, then retry or create a new room.';
 const HOST_SYNC_TIMEOUT_MS = 12_000;
 const JOIN_RETRY_MS = 2_000;
-const TRYSTERO_APP_ID = 'io.github.abhidya.karachi-coup.v1';
-const CLIENT_ACTION = 'karachi-coup-client-v1';
-const SERVER_ACTION = 'karachi-coup-server-v1';
 
 function isServerMessage(value: unknown): value is ServerMessage {
   return Boolean(value && typeof value === 'object' && typeof (value as ServerMessage).type === 'string');
@@ -162,6 +160,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
   let destroyed = false;
   let syncTimeout: number | null = null;
   let joinRetryTimeout: number | null = null;
+  let resyncPending = false;
 
   const emit = () => {
     listeners.forEach((listener) => listener(snapshot));
@@ -172,6 +171,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
       window.clearTimeout(syncTimeout);
       syncTimeout = null;
     }
+    resyncPending = false;
   };
 
   const clearJoinRetry = () => {
@@ -182,6 +182,8 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
   };
 
   const markHostUnreachable = () => {
+    syncTimeout = null;
+    resyncPending = false;
     if (destroyed || snapshot.phase === 'synced') {
       return;
     }
@@ -197,6 +199,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
 
   const startSyncTimeout = () => {
     clearSyncTimeout();
+    resyncPending = true;
     syncTimeout = window.setTimeout(markHostUnreachable, HOST_SYNC_TIMEOUT_MS);
   };
 
@@ -330,7 +333,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
   try {
     recordNetworkStage('client:init-start', { roomId, transport: 'trystero' });
     room = joinRoom(
-      { appId: TRYSTERO_APP_ID },
+      trysteroConfig,
       roomId.toUpperCase(),
       {
         onJoinError(details) {
@@ -367,7 +370,7 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
         error: null,
       };
       emit();
-      sendJoin(peerId);
+      sendJoin(hostPeerId ?? peerId);
     };
 
     room.onPeerLeave = (peerId) => {
@@ -438,6 +441,15 @@ export async function createPeerClient(roomId: string, options: ClientOptions = 
       emit();
     },
     requestResync() {
+      if (resyncPending) {
+        snapshot = {
+          ...snapshot,
+          lastMessage: 'client:resync-pending',
+        };
+        emit();
+        return;
+      }
+
       const message: ClientResyncMessage = { type: 'REQUEST_RESYNC' };
       sendClientMessage(message, hostPeerId ?? undefined);
       startSyncTimeout();

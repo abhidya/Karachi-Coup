@@ -180,4 +180,20 @@ describe('peer client', () => {
     expect(clientMessages(room).some((message) => (message.data as { type?: string }).type === 'JOIN')).toBe(true);
     client.destroy();
   });
+
+  it('coalesces repeated resync clicks while a resync is pending', async () => {
+    const client = await createPeerClient('ROOMC3', { displayName: 'Ari' });
+    const room = trystero.rooms[0]!;
+    room.peerJoin('host-peer');
+    syncFromHost(room, 'ROOMC3', 'ROOMC3-PLAYER');
+
+    const before = clientMessages(room).length;
+    for (let index = 0; index < 6; index += 1) {
+      client.requestResync();
+    }
+
+    const sentAfter = clientMessages(room).slice(before);
+    expect(sentAfter).toHaveLength(1);
+    expect(sentAfter[0]).toMatchObject({ data: { type: 'REQUEST_RESYNC' }, options: { target: 'host-peer' } });
+  });
 });

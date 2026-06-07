@@ -21,6 +21,7 @@ import type {
 import { createHostGameState } from '../game/rules';
 import { hostStorageKey, readLocalStorage, writeLocalStorage } from './storage';
 import { recordNetworkStage } from './diagnostics';
+import { CLIENT_ACTION, SERVER_ACTION, trysteroConfig } from './trysteroConfig';
 
 
 type HostConnection = {
@@ -46,10 +47,6 @@ type StoredHostIdentity = {
   displayName: string;
   playerId: string | null;
 };
-
-const TRYSTERO_APP_ID = 'io.github.abhidya.karachi-coup.v1';
-const CLIENT_ACTION = 'karachi-coup-client-v1';
-const SERVER_ACTION = 'karachi-coup-server-v1';
 
 export type HostNetworkPhase = 'idle' | 'starting' | 'ready' | 'error' | 'closed';
 
@@ -334,10 +331,13 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     broadcastState(eventLabel);
   };
 
-  const broadcastState = (eventLabel: string) => {
+  const broadcastState = (eventLabel: string, options: { excludePeer?: string } = {}) => {
     const publicState = toPublicGameState(state);
     const publicMessage: ServerPublicStateMessage = { type: 'PUBLIC_STATE', state: publicState };
     connections.forEach(({ connection, playerId }) => {
+      if (connection.peer === options.excludePeer) {
+        return;
+      }
       sendMessage(connection, publicMessage);
       if (playerId && state.playersById[playerId]) {
         sendMessage(connection, { type: 'PRIVATE_STATE', state: toPrivatePlayerState(state, playerId) });
@@ -465,6 +465,13 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     });
 
     const previousPlayer = state.playersById[playerId];
+    if (joined.playerId === playerId && previousPlayer?.connected && previousPlayer.name === playerName) {
+      recordNetworkStage('host:join-refresh', { peer: connection.peer, displayName: message.displayName });
+      syncConnection(connection, playerId, state);
+      emit(snapshot.phase === 'ready' ? 'ready' : snapshot.phase, `host:join-refresh:${playerId}`, null);
+      return;
+    }
+
     const nextPlayer =
       previousPlayer ?? {
         ...createBasePlayer(playerId, playerName),
@@ -494,7 +501,7 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     recordNetworkStage('host:join-received', { peer: connection.peer, displayName: message.displayName });
     syncConnection(connection, playerId, state);
     recordNetworkStage('host:sync-completed', { peer: connection.peer, playerId });
-    broadcastState(`host:join:${playerId}`);
+    broadcastState(`host:join:${playerId}`, { excludePeer: connection.peer });
     recordNetworkStage('host:broadcast-completed', { playerId });
   };
 
@@ -558,7 +565,7 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   try {
     recordNetworkStage('host:init-start', { roomId, transport: 'trystero' });
     room = joinRoom(
-      { appId: TRYSTERO_APP_ID },
+      trysteroConfig,
       roomId.toUpperCase(),
       {
         onJoinError(details) {

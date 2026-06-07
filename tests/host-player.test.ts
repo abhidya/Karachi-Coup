@@ -179,8 +179,29 @@ describe('host player', () => {
 
     room.emitAction(CLIENT_ACTION, { type: 'JOIN', roomCode: 'ROOMH5', displayName: 'Guest', clientNonce: 'guest-nonce' });
 
-    expect(serverMessages(room).slice(0, 3).map((message) => (message.data as { type?: string }).type)).toEqual(['WELCOME', 'PUBLIC_STATE', 'PRIVATE_STATE']);
+    expect(serverMessages(room).map((message) => (message.data as { type?: string }).type)).toEqual(['WELCOME', 'PUBLIC_STATE', 'PRIVATE_STATE']);
     expect(host.snapshot.players[0]?.name).toBe('Guest');
+  });
+
+  it('host player: duplicate join refreshes one player without rebroadcasting the room', async () => {
+    const host = await createPeerHost('ROOMH7');
+    const room = trystero.rooms[0]!;
+    const join = { type: 'JOIN', roomCode: 'ROOMH7', displayName: 'Guest', clientNonce: 'guest-nonce' };
+
+    room.emitAction(CLIENT_ACTION, join);
+    expect(serverMessages(room).map((message) => (message.data as { type?: string }).type)).toEqual(['WELCOME', 'PUBLIC_STATE', 'PRIVATE_STATE']);
+
+    room.emitAction(CLIENT_ACTION, join);
+    expect(host.snapshot.players).toHaveLength(1);
+    expect(host.snapshot.players[0]?.name).toBe('Guest');
+    expect(serverMessages(room).map((message) => (message.data as { type?: string }).type)).toEqual([
+      'WELCOME',
+      'PUBLIC_STATE',
+      'PRIVATE_STATE',
+      'WELCOME',
+      'PUBLIC_STATE',
+      'PRIVATE_STATE',
+    ]);
   });
 
   it('host player: peer leave marks the active player disconnected once', async () => {

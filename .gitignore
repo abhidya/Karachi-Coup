@@ -5,3 +5,6 @@ node_modules/
 test-results/
 .idea/
 .DS_Store
+
+# Local profiler outputs
+metrics/*.json
