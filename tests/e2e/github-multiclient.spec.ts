@@ -38,6 +38,10 @@ function stormMessages(logs: RuntimeLog[]): string[] {
     .filter((message) => STORM_PATTERNS.some((pattern) => pattern.test(message)));
 }
 
+function consoleErrors(logs: RuntimeLog[]): string[] {
+  return logs.flatMap((log) => log.console).filter((message) => /\] error:/i.test(message));
+}
+
 async function createHostedRoom(page: Page, hostName: string): Promise<string> {
   await page.goto('./');
   await page.getByLabel('Your name').fill(hostName);
@@ -102,6 +106,7 @@ test('production multi-client lobby does not reconnect-storm while waiting', asy
     }
 
     expect(stormMessages(logs)).toEqual([]);
+    expect(consoleErrors(logs)).toEqual([]);
     expect(logs.flatMap((log) => log.pageErrors)).toEqual([]);
     expect(logs.flatMap((log) => log.crashes)).toEqual([]);
   } finally {

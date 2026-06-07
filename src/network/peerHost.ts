@@ -2,6 +2,7 @@ import { createActionEvent, reducer } from '../game/reducer';
 import { createBasePlayer, toPlayerId } from '../game/utils';
 import { toPublicGameState, toPrivatePlayerState } from '../game/snapshots';
 import { validateClientMessage } from '../game/validation';
+import { joinRoom, selfId, type MessageAction, type Room } from 'trystero';
 import type {
   ClientJoinMessage,
   ClientMessage,
@@ -19,26 +20,12 @@ import type {
 } from '../game/types';
 import { createHostGameState } from '../game/rules';
 import { hostStorageKey, readLocalStorage, writeLocalStorage } from './storage';
-import { peerOptions } from './peerOptions';
 import { recordNetworkStage } from './diagnostics';
 
-
-type PeerModule = {
-  default: new (id?: string, options?: Record<string, unknown>) => HostPeerInstance;
-};
-
-type HostPeerInstance = {
-  id: string | null;
-  on: (event: string, handler: (...args: any[]) => void) => void;
-  off?: (event?: string, handler?: (...args: any[]) => void) => void;
-  destroy: () => void;
-  reconnect: () => void;
-};
 
 type HostConnection = {
   peer: string;
   open: boolean;
-  on: (event: string, handler: (...args: any[]) => void) => void;
   off?: (event?: string, handler?: (...args: any[]) => void) => void;
   send: (data: unknown) => void;
   close: () => void;
@@ -60,17 +47,9 @@ type StoredHostIdentity = {
   playerId: string | null;
 };
 
-const RECONNECT_INITIAL_DELAY_MS = 1_000;
-const RECONNECT_MAX_DELAY_MS = 30_000;
-
-function reconnectDelay(attempt: number): number {
-  return Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_INITIAL_DELAY_MS * 2 ** attempt);
-}
-
-function isReconnectablePeerError(error: any): boolean {
-  if (!error || typeof error !== 'object') return false;
-  return ['network', 'server-error', 'socket-error', 'socket-closed'].includes(error.type);
-}
+const TRYSTERO_APP_ID = 'io.github.abhidya.karachi-coup.v1';
+const CLIENT_ACTION = 'karachi-coup-client-v1';
+const SERVER_ACTION = 'karachi-coup-server-v1';
 
 export type HostNetworkPhase = 'idle' | 'starting' | 'ready' | 'error' | 'closed';
 
@@ -285,10 +264,9 @@ function syncConnection(
 
 export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   if (typeof window === 'undefined') {
-    throw new Error('PeerJS host requires a browser environment.');
+    throw new Error('Trystero host requires a browser environment.');
   }
 
-  const { default: Peer } = (await import('peerjs')) as PeerModule;
   const listeners = new Set<(snapshot: HostNetworkSnapshot) => void>();
   const connections = new Map<string, JoinedConnection>();
   const activeConnectionGenerations = new Map<PlayerId, number>();
@@ -297,24 +275,63 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   let state = storedState ?? createHostGameState(roomId, makeGameId(roomId));
   let hostPlayerId: PlayerId | null =
     Object.entries(state.playersById).find(([, player]) => player.clientNonce === storedIdentity.clientNonce)?.[0] as PlayerId | null ?? null;
-  let peer: HostPeerInstance | null = null;
+  let room: Room | null = null;
+  let serverAction: MessageAction<any> | null = null;
   let snapshot = buildSnapshot('starting', roomId, null, connections, state, null, null, Boolean(storedState));
   let destroyed = false;
   let nextConnectionGeneration = 1;
-  let reconnectTimeout: number | null = null;
-  let reconnectAttempts = 0;
-
-  const clearReconnectTimeout = () => {
-    if (reconnectTimeout) {
-      window.clearTimeout(reconnectTimeout);
-      reconnectTimeout = null;
-    }
-  };
 
   const emit = (nextPhase: HostNetworkPhase = snapshot.phase, lastEvent = snapshot.lastEvent, error = snapshot.error) => {
     persistState(roomId, state);
-    snapshot = buildSnapshot(nextPhase, roomId, peer?.id ?? null, connections, state, lastEvent, error, snapshot.restored);
+    snapshot = buildSnapshot(nextPhase, roomId, selfId ?? null, connections, state, lastEvent, error, snapshot.restored);
     listeners.forEach((listener) => listener(snapshot));
+  };
+
+  const makeConnection = (peerId: string): HostConnection => ({
+    peer: peerId,
+    open: true,
+    send(data: unknown) {
+      void serverAction?.send(data, { target: peerId }).catch((error) => {
+        const message = error instanceof Error ? error.message : 'Failed to send host message.';
+        recordNetworkStage('host:send-error', { peer: peerId, error: message });
+        emit(snapshot.phase, `host:send-error:${peerId}`, message);
+      });
+    },
+    close() {
+      this.open = false;
+    },
+    off() {},
+  });
+
+  const closeConnection = (peerId: string, eventLabel: string) => {
+    const joined = connections.get(peerId);
+    if (!joined) {
+      return;
+    }
+
+    joined.connection.close();
+    connections.delete(peerId);
+    if (joined.playerId && activeConnectionGenerations.get(joined.playerId) === joined.generation) {
+      activeConnectionGenerations.delete(joined.playerId);
+      const player = state.playersById[joined.playerId];
+      if (player) {
+        state = {
+          ...state,
+          playersById: {
+            ...state.playersById,
+            [joined.playerId]: {
+              ...player,
+              connected: false,
+            },
+          },
+          log: [
+            { id: `${Date.now()}-${joined.playerId}-left`, text: `${player.name} disconnected.` },
+            ...state.log,
+          ].slice(0, 12),
+        };
+      }
+    }
+    broadcastState(eventLabel);
   };
 
   const broadcastState = (eventLabel: string) => {
@@ -332,26 +349,6 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
   const setState = (nextState: HostGameState, eventLabel: string) => {
     state = nextState;
     broadcastState(eventLabel);
-  };
-
-  const scheduleReconnect = (reason: string) => {
-    if (destroyed || reconnectTimeout) return;
-
-    const delayMs = reconnectDelay(reconnectAttempts);
-    recordNetworkStage('host:reconnect-scheduled', { reason, delayMs });
-    emit(snapshot.phase === 'closed' ? 'starting' : snapshot.phase, `host:reconnect-scheduled:${reason}`, snapshot.error);
-
-    reconnectTimeout = window.setTimeout(() => {
-      reconnectTimeout = null;
-      reconnectAttempts += 1;
-      try {
-        peer?.reconnect();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Peer host reconnect failed.';
-        recordNetworkStage('host:reconnect-error', { reason, error: message });
-        scheduleReconnect('reconnect-error');
-      }
-    }, delayMs);
   };
 
   const ensureHostPlayer = (displayName: string, suppressBroadcast = false): PlayerId => {
@@ -453,7 +450,6 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       existingId ??
       makePlayerId(roomId, message.clientNonce, new Set(Object.keys(state.playersById).map((value) => toPlayerId(value))));
 
-    // Clean up any stale connection for this player
     const staleKeys: string[] = [];
     connections.forEach((conn, peerId) => {
       if (conn.playerId === playerId && peerId !== connection.peer) {
@@ -463,13 +459,7 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     staleKeys.forEach((peerId) => {
       const conn = connections.get(peerId);
       if (conn) {
-        console.log(`[Host] Closing stale connection for player ${playerId} (peer: ${peerId})`);
-        try {
-          conn.connection.off?.();
-          conn.connection.close();
-        } catch (err) {
-          // Ignore
-        }
+        conn.connection.close();
         connections.delete(peerId);
       }
     });
@@ -526,10 +516,6 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       } else if (current.playerId) {
         sendMessage(connection, { type: 'ERROR', message: 'Connection has been superseded.' });
       } else {
-        // Some browsers/PeerJS transports can deliver an eager resync before the JOIN
-        // payload on a fresh data channel. Do not turn that harmless ordering race into
-        // a client-visible error; the JOIN that follows will perform the authoritative
-        // welcome/public/private sync.
         emit(snapshot.phase === 'ready' ? 'ready' : snapshot.phase, `host:resync-before-join:${connection.peer}`, null);
       }
       return;
@@ -569,15 +555,66 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     }
   };
 
-  const hostPeerId = `karachi-coup-room-${roomId.toUpperCase()}`;
   try {
-    recordNetworkStage('host:init-start', { roomId, hostPeerId });
-    peer = new Peer(hostPeerId, peerOptions);
+    recordNetworkStage('host:init-start', { roomId, transport: 'trystero' });
+    room = joinRoom(
+      { appId: TRYSTERO_APP_ID },
+      roomId.toUpperCase(),
+      {
+        onJoinError(details) {
+          const message = details.error || 'Unable to join Trystero room.';
+          recordNetworkStage('host:error', { errorMessage: message });
+          emit('error', 'host:join-error', message);
+        },
+      },
+    );
+    serverAction = room.makeAction(SERVER_ACTION) as MessageAction<any>;
+    const clientAction = room.makeAction(CLIENT_ACTION) as MessageAction<any>;
+
+    clientAction.onMessage = (data, context) => {
+      if (destroyed) {
+        return;
+      }
+      const peerId = context.peerId;
+      let joined = connections.get(peerId);
+      if (!joined) {
+        const connection = makeConnection(peerId);
+        const generation = nextConnectionGeneration;
+        nextConnectionGeneration += 1;
+        joined = { connection, playerId: null, generation };
+        connections.set(peerId, joined);
+        recordNetworkStage('host:connection-received', { peer: peerId });
+        emit(snapshot.phase === 'ready' ? 'ready' : snapshot.phase, `host:connection:${peerId}`, null);
+      }
+      handleMessage(joined.connection, data);
+    };
+
+    room.onPeerJoin = (peerId) => {
+      if (destroyed) {
+        return;
+      }
+      recordNetworkStage('host:peer-join', { peer: peerId });
+      emit(snapshot.phase === 'ready' ? 'ready' : snapshot.phase, `host:peer-join:${peerId}`, null);
+    };
+
+    room.onPeerLeave = (peerId) => {
+      if (destroyed) {
+        return;
+      }
+      recordNetworkStage('host:peer-leave', { peer: peerId });
+      closeConnection(peerId, `host:close:${peerId}`);
+    };
+
+    recordNetworkStage('host:open', { peerId: selfId, transport: 'trystero' });
+    emit('ready', 'host:open', null);
+    broadcastState('host:open');
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to start Trystero host room.';
+    recordNetworkStage('host:error', { errorMessage: message });
     snapshot = {
       ...snapshot,
       phase: 'error',
-      error: error instanceof Error ? error.message : 'Unable to start host peer.',
+      error: message,
       lastEvent: 'host:init:error',
     };
     listeners.forEach((listener) => listener(snapshot));
@@ -601,120 +638,6 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
       destroy() {},
     };
   }
-
-  peer.on('open', (peerId: unknown) => {
-    if (destroyed) {
-      return;
-    }
-
-    const typedPeerId = typeof peerId === 'string' ? peerId : null;
-    reconnectAttempts = 0;
-    clearReconnectTimeout();
-    recordNetworkStage('host:open', { peerId: typedPeerId });
-
-    snapshot = {
-      ...snapshot,
-      phase: 'ready',
-      peerId: typedPeerId,
-      lastEvent: 'host:open',
-      error: null,
-    };
-    listeners.forEach((listener) => listener(snapshot));
-    broadcastState('host:open');
-  });
-
-  peer.on('disconnected', () => {
-    scheduleReconnect('peer-disconnected');
-  });
-
-  peer.on('connection', (connection: unknown) => {
-    const typedConnection = connection as HostConnection;
-    recordNetworkStage('host:connection-received', { peer: typedConnection.peer });
-    const generation = nextConnectionGeneration;
-    nextConnectionGeneration += 1;
-    connections.set(typedConnection.peer, { connection: typedConnection, playerId: null, generation });
-    snapshot = {
-      ...snapshot,
-      lastEvent: `host:connection:${typedConnection.peer}`,
-    };
-    listeners.forEach((listener) => listener(snapshot));
-
-    typedConnection.on('data', (data: unknown) => {
-      handleMessage(typedConnection, data);
-    });
-
-    typedConnection.on('close', () => {
-      recordNetworkStage('host:connection-closed', { peer: typedConnection.peer });
-      const joined = connections.get(typedConnection.peer);
-      if (!joined || joined.connection !== typedConnection) {
-        return;
-      }
-
-      connections.delete(typedConnection.peer);
-      if (joined.playerId && activeConnectionGenerations.get(joined.playerId) === joined.generation) {
-        activeConnectionGenerations.delete(joined.playerId);
-        const player = state.playersById[joined.playerId];
-        if (player) {
-          state = {
-            ...state,
-            playersById: {
-              ...state.playersById,
-              [joined.playerId]: {
-                ...player,
-                connected: false,
-              },
-            },
-            log: [
-              { id: `${Date.now()}-${joined.playerId}-left`, text: `${player.name} disconnected.` },
-              ...state.log,
-            ].slice(0, 12),
-          };
-        }
-      }
-      broadcastState(`host:close:${typedConnection.peer}`);
-    });
-
-    typedConnection.on('error', (error: unknown) => {
-      const errMsg = error instanceof Error ? error.message : 'Peer connection error.';
-      recordNetworkStage('host:error', { peer: typedConnection.peer, error: errMsg });
-      snapshot = {
-        ...snapshot,
-        error: errMsg,
-        lastEvent: `host:error:${typedConnection.peer}`,
-      };
-      listeners.forEach((listener) => listener(snapshot));
-    });
-  });
-
-  peer.on('error', (error: any) => {
-    let message = 'An unexpected matchmaking error occurred.';
-    if (error && typeof error === 'object') {
-      const type = error.type;
-      const rawMessage = error.message;
-      if (type === 'unavailable-id') {
-        message = `Room code "${roomId}" is already hosting a game in another tab or by another player. Please recreate the room or try a different room code.`;
-      } else if (type === 'network') {
-        message = 'Lost connection to the PeerJS signaling server. Retrying...';
-      } else if (type === 'webrtc') {
-        message = 'WebRTC error: Failed to negotiate peer-to-peer connection. This can be caused by a strict NAT or firewall.';
-      } else if (rawMessage) {
-        message = rawMessage;
-      }
-    }
-
-    recordNetworkStage('host:error', { errorType: error?.type || 'unknown', errorMessage: message });
-
-    snapshot = {
-      ...snapshot,
-      phase: 'error',
-      error: message,
-      lastEvent: `host:error:${error?.type || 'unknown'}`,
-    };
-    listeners.forEach((listener) => listener(snapshot));
-    if (isReconnectablePeerError(error)) {
-      scheduleReconnect('peer-error');
-    }
-  });
 
   return {
     get snapshot() {
@@ -775,14 +698,15 @@ export async function createPeerHost(roomId: string): Promise<PeerHostHandle> {
     },
     destroy() {
       destroyed = true;
-      clearReconnectTimeout();
       connections.forEach(({ connection }) => {
         try { connection.off?.(); } catch {}
         try { connection.close(); } catch {}
       });
       connections.clear();
-      try { peer?.off?.(); } catch {}
-      try { peer?.destroy(); } catch {}
+      void room?.leave().catch((error) => {
+        const message = error instanceof Error ? error.message : 'Failed to leave Trystero room.';
+        recordNetworkStage('host:leave-error', { error: message });
+      });
       snapshot = {
         ...snapshot,
         phase: 'closed',

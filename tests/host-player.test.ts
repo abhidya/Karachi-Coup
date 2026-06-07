@@ -1,89 +1,114 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const CLIENT_ACTION = 'karachi-coup-client-v1';
+const SERVER_ACTION = 'karachi-coup-server-v1';
+
+const trystero = vi.hoisted(() => {
+  class FakeAction {
+    sent: { data: unknown; options?: { target?: string | string[] | null } }[] = [];
+    onMessage: ((data: unknown, context: { peerId: string }) => void | Promise<void>) | null = null;
+    onReceiveProgress = null;
+
+    async send(data: unknown, options?: { target?: string | string[] | null }) {
+      this.sent.push({ data, options });
+    }
+  }
+
+  class FakeRoom {
+    actions = new Map<string, FakeAction>();
+    onPeerJoin: ((peerId: string) => void) | null = null;
+    onPeerLeave: ((peerId: string) => void) | null = null;
+    onPeerStream = null;
+    onPeerTrack = null;
+
+    makeAction(namespace: string) {
+      let action = this.actions.get(namespace);
+      if (!action) {
+        action = new FakeAction();
+        this.actions.set(namespace, action);
+      }
+      return action;
+    }
+
+    emitAction(namespace: string, data: unknown, peerId = 'remote-peer') {
+      void this.actions.get(namespace)?.onMessage?.(data, { peerId });
+    }
+
+    peerJoin(peerId: string) {
+      this.onPeerJoin?.(peerId);
+    }
+
+    peerLeave(peerId: string) {
+      this.onPeerLeave?.(peerId);
+    }
+
+    async leave() {}
+    isPassive() { return false; }
+    getPeers() { return {}; }
+    addStream() { return []; }
+    removeStream() {}
+    addTrack() { return []; }
+    removeTrack() {}
+    replaceTrack() { return []; }
+    async ping() { return 1; }
+  }
+
+  const rooms: FakeRoom[] = [];
+  return {
+    rooms,
+    joinRoom: vi.fn((_config: unknown, _roomId: string) => {
+      const room = new FakeRoom();
+      rooms.push(room);
+      return room;
+    }),
+    selfId: 'host-self',
+  };
+});
+
+vi.mock('trystero', () => ({
+  joinRoom: trystero.joinRoom,
+  selfId: trystero.selfId,
+}));
+
+
+function installStorage(kind: 'localStorage' | 'sessionStorage') {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, kind, {
+    configurable: true,
+    value: {
+      get length() {
+        return store.size;
+      },
+      clear() {
+        store.clear();
+      },
+      getItem(key: string) {
+        return store.get(key) ?? null;
+      },
+      key(index: number) {
+        return Array.from(store.keys())[index] ?? null;
+      },
+      removeItem(key: string) {
+        store.delete(key);
+      },
+      setItem(key: string, value: string) {
+        store.set(key, value);
+      },
+    },
+  });
+}
+
 import { createPeerHost } from '../src/network/peerHost';
 
-const peers: FakePeer[] = [];
-
-class FakeConnection {
-  peer: string;
-  open = true;
-  sent: unknown[] = [];
-  handlers = new Map<string, ((...args: any[]) => void)[]>();
-
-  constructor(peer: string) {
-    this.peer = peer;
-  }
-
-  on(event: string, handler: (...args: any[]) => void) {
-    const list = this.handlers.get(event) ?? [];
-    list.push(handler);
-    this.handlers.set(event, list);
-  }
-
-  off() {
-    this.handlers.clear();
-  }
-
-  send(data: unknown) {
-    this.sent.push(data);
-  }
-
-  close() {
-    this.open = false;
-    this.emit('close');
-  }
-
-  emit(event: string, ...args: unknown[]) {
-    for (const handler of this.handlers.get(event) ?? []) {
-      handler(...args);
-    }
-  }
+function serverMessages(room = trystero.rooms[0]!) {
+  return room.makeAction(SERVER_ACTION).sent;
 }
-
-class FakePeer {
-  id: string | null = null;
-  reconnects = 0;
-  handlers = new Map<string, ((...args: any[]) => void)[]>();
-  connections: FakeConnection[] = [];
-
-  constructor(id?: string) {
-    this.id = id ?? null;
-    peers.push(this);
-  }
-
-  on(event: string, handler: (...args: any[]) => void) {
-    const list = this.handlers.get(event) ?? [];
-    list.push(handler);
-    this.handlers.set(event, list);
-  }
-
-  off() {
-    this.handlers.clear();
-  }
-
-  connect(peerId: string) {
-    const conn = new FakeConnection(peerId);
-    this.connections.push(conn);
-    return conn;
-  }
-
-  reconnect() {
-    this.reconnects += 1;
-  }
-
-  destroy() {}
-
-  emit(event: string, ...args: unknown[]) {
-    for (const handler of this.handlers.get(event) ?? []) {
-      handler(...args);
-    }
-  }
-}
-
-vi.mock('peerjs', () => ({ default: FakePeer }));
 
 describe('host player', () => {
   beforeEach(() => {
-    peers.length = 0;
+    trystero.rooms.length = 0;
+    installStorage('localStorage');
+    installStorage('sessionStorage');
     vi.useFakeTimers();
   });
 
@@ -93,23 +118,19 @@ describe('host player', () => {
 
   it('host player: creating host room can add host as Player 1', async () => {
     const host = await createPeerHost('ROOMH1');
-    const peer = peers[0]!;
-    peer.emit('open', 'ROOMH1');
 
     const hostId = host.joinHostPlayer('Host');
+    expect(host.snapshot.phase).toBe('ready');
     expect(host.snapshot.players[0]?.name).toBe('Host');
     expect(host.snapshot.players[0]?.playerId).toBe(hostId);
   });
 
   it('host player: host private state is available after start game', async () => {
     const host = await createPeerHost('ROOMH2');
-    const peer = peers[0]!;
-    peer.emit('open', 'ROOMH2');
+    const room = trystero.rooms[0]!;
     const hostId = host.joinHostPlayer('Host');
 
-    const conn = peer.connect('remote-peer');
-    peer.emit('connection', conn);
-    conn.emit('data', { type: 'JOIN', roomCode: 'ROOMH2', displayName: 'Guest', clientNonce: 'guest-nonce' });
+    room.emitAction(CLIENT_ACTION, { type: 'JOIN', roomCode: 'ROOMH2', displayName: 'Guest', clientNonce: 'guest-nonce' });
 
     host.startGame();
 
@@ -119,13 +140,10 @@ describe('host player', () => {
 
   it('host player: host local intent is validated and reduced like remote intent', async () => {
     const host = await createPeerHost('ROOMH3');
-    const peer = peers[0]!;
-    peer.emit('open', 'ROOMH3');
+    const room = trystero.rooms[0]!;
     const hostId = host.joinHostPlayer('Host');
 
-    const conn = peer.connect('remote-peer');
-    peer.emit('connection', conn);
-    conn.emit('data', { type: 'JOIN', roomCode: 'ROOMH3', displayName: 'Guest', clientNonce: 'guest-nonce' });
+    room.emitAction(CLIENT_ACTION, { type: 'JOIN', roomCode: 'ROOMH3', displayName: 'Guest', clientNonce: 'guest-nonce' });
 
     host.startGame();
     const remotePlayerId = host.snapshot.players[1]?.playerId;
@@ -136,21 +154,15 @@ describe('host player', () => {
     expect(host.snapshot.privateStates[hostId]?.isTurn).toBe(false);
   });
 
-  it('host player: stale connection close does not disconnect a rejoined player', async () => {
+  it('host player: stale peer leave does not disconnect a rejoined player', async () => {
     const host = await createPeerHost('ROOMH4');
-    const peer = peers[0]!;
-    peer.emit('open', 'ROOMH4');
+    const room = trystero.rooms[0]!;
 
-    const oldConn = peer.connect('remote-peer-old');
-    peer.emit('connection', oldConn);
-    oldConn.emit('data', { type: 'JOIN', roomCode: 'ROOMH4', displayName: 'Guest', clientNonce: 'guest-nonce' });
+    room.emitAction(CLIENT_ACTION, { type: 'JOIN', roomCode: 'ROOMH4', displayName: 'Guest', clientNonce: 'guest-nonce' }, 'remote-peer-old');
     const playerId = host.snapshot.players[0]?.playerId;
 
-    const newConn = peer.connect('remote-peer-new');
-    peer.emit('connection', newConn);
-    newConn.emit('data', { type: 'JOIN', roomCode: 'ROOMH4', displayName: 'Guest', clientNonce: 'guest-nonce' });
-
-    oldConn.close();
+    room.emitAction(CLIENT_ACTION, { type: 'JOIN', roomCode: 'ROOMH4', displayName: 'Guest', clientNonce: 'guest-nonce' }, 'remote-peer-new');
+    room.peerLeave('remote-peer-old');
 
     expect(host.snapshot.players).toHaveLength(1);
     expect(host.snapshot.players[0]?.playerId).toBe(playerId);
@@ -159,38 +171,29 @@ describe('host player', () => {
 
   it('host player: eager resync before join is ignored and later join still syncs', async () => {
     const host = await createPeerHost('ROOMH5');
-    const peer = peers[0]!;
-    peer.emit('open', 'ROOMH5');
+    const room = trystero.rooms[0]!;
 
-    const conn = peer.connect('remote-peer');
-    peer.emit('connection', conn);
-    conn.emit('data', { type: 'REQUEST_RESYNC' });
-    expect(conn.sent).toHaveLength(0);
+    room.emitAction(CLIENT_ACTION, { type: 'REQUEST_RESYNC' });
+    expect(serverMessages(room)).toHaveLength(0);
     expect(host.snapshot.lastEvent).toContain('host:resync-before-join');
 
-    conn.emit('data', { type: 'JOIN', roomCode: 'ROOMH5', displayName: 'Guest', clientNonce: 'guest-nonce' });
+    room.emitAction(CLIENT_ACTION, { type: 'JOIN', roomCode: 'ROOMH5', displayName: 'Guest', clientNonce: 'guest-nonce' });
 
-    expect(conn.sent.slice(0, 3).map((message) => (message as { type?: string }).type)).toEqual(['WELCOME', 'PUBLIC_STATE', 'PRIVATE_STATE']);
+    expect(serverMessages(room).slice(0, 3).map((message) => (message.data as { type?: string }).type)).toEqual(['WELCOME', 'PUBLIC_STATE', 'PRIVATE_STATE']);
     expect(host.snapshot.players[0]?.name).toBe('Guest');
   });
 
-  it('host player: signaling disconnects are reconnected with a single scheduled backoff', async () => {
+  it('host player: peer leave marks the active player disconnected once', async () => {
     const host = await createPeerHost('ROOMH6');
-    const peer = peers[0]!;
-    peer.emit('open', 'ROOMH6');
+    const room = trystero.rooms[0]!;
 
-    for (let index = 0; index < 8; index += 1) {
-      peer.emit('disconnected');
-    }
+    room.emitAction(CLIENT_ACTION, { type: 'JOIN', roomCode: 'ROOMH6', displayName: 'Guest', clientNonce: 'guest-nonce' }, 'remote-peer');
+    expect(host.snapshot.players[0]?.connected).toBe(true);
 
-    expect(peer.reconnects).toBe(0);
+    room.peerLeave('remote-peer');
+    room.peerLeave('remote-peer');
 
-    await vi.advanceTimersByTimeAsync(999);
-    expect(peer.reconnects).toBe(0);
-
-    await vi.advanceTimersByTimeAsync(1);
-    expect(peer.reconnects).toBe(1);
-    host.destroy();
+    expect(host.snapshot.players).toHaveLength(1);
+    expect(host.snapshot.players[0]?.connected).toBe(false);
   });
-
 });
