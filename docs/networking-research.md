@@ -47,7 +47,7 @@ Remaining production risks:
 - Public/decentralized signaling relays are still external infrastructure we do not control.
 - Browser-hosted authority means the host tab is the server; if it closes, the room is gone.
 - Clients share a room and the app trusts host-like server messages after WELCOME. For casual private room-code play this is acceptable; for adversarial/public play it is not.
-- Strict NAT/firewall cases may still require TURN. Free TURN options exist, but TURN credentials or usage quotas need their own decision.
+- Strict NAT/firewall cases require TURN. This is now wired in: `src/network/trysteroConfig.ts` sets `rtcConfig.iceServers` with Google STUN plus the [Open Relay Project](https://www.metered.ca/tools/openrelay/) free public TURN servers (ports 80/443 and 443/tcp), passed through to Trystero's `RTCPeerConnection`. This keeps the site static with no backend or secret to manage. Caveat: Open Relay is a shared free service with usage quotas and no SLA — fine for a demo, but a self-hosted/credentialed TURN (e.g. coturn, Metered, or Cloudflare TURN) injected via build-time `VITE_*` env vars + GitHub Secrets is the path for production reliability.
 
 ## If we want real production later
 
