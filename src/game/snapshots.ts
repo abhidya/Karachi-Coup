@@ -65,7 +65,7 @@ function buildBlockActionPrompt(state: HostGameState, playerId: PlayerId): Priva
 
   const canBlock =
     pendingAction.actionType === 'RISHTEDAAR_HELP'
-      ? playerId !== pendingAction.actorId
+      ? playerId !== pendingAction.actorId && !(state.blockPasses ?? []).includes(playerId)
       : pendingAction.targetId === playerId;
 
   if (!canBlock) return null;

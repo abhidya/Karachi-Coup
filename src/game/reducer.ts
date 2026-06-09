@@ -312,6 +312,7 @@ function declareAction(state: HostGameState, action: PendingAction): HostGameSta
           ...state,
           phase: 'BLOCK_WINDOW',
           pendingAction: action,
+          blockPasses: [],
         },
         `${playerName(state, action.actorId)} claims Rishtedaar Help.`,
       );
@@ -391,11 +392,31 @@ function passChallenge(state: HostGameState, playerId: PlayerId): HostGameState 
   return bump(state, resolveBlockStand({ ...state, pendingChallenge: null }), `${playerName(state, playerId)} lets it slide.`);
 }
 
-function passBlock(state: HostGameState, _playerId: PlayerId): HostGameState {
+function passBlock(state: HostGameState, playerId: PlayerId): HostGameState {
   if (state.phase !== 'BLOCK_WINDOW') return state;
   const pending = state.pendingAction;
   if (!pending) return state;
-  return bump(state, resolveUnblockedAction({ ...state, pendingChallenge: null, pendingBlock: null }), `${playerName(state, _playerId)} lets it slide.`);
+
+  // RISHTEDAAR_HELP may be blocked by any living non-actor, so the window stays
+  // open until every eligible blocker has declined — a single pass must not
+  // resolve the action on everyone else's behalf.
+  if (pending.actionType === 'RISHTEDAAR_HELP') {
+    const eligibleBlockers = eligibleChallengers(state, [pending.actorId]);
+    const blockPasses = eligibleBlockers.includes(playerId) && !(state.blockPasses ?? []).includes(playerId)
+      ? [...(state.blockPasses ?? []), playerId]
+      : state.blockPasses ?? [];
+    const allPassed = eligibleBlockers.every((id) => blockPasses.includes(id));
+    if (!allPassed) {
+      return bump(state, { ...state, blockPasses }, `${playerName(state, playerId)} lets it slide.`);
+    }
+    return bump(
+      state,
+      resolveUnblockedAction({ ...state, blockPasses: [], pendingChallenge: null, pendingBlock: null }),
+      `${playerName(state, playerId)} lets it slide.`,
+    );
+  }
+
+  return bump(state, resolveUnblockedAction({ ...state, pendingChallenge: null, pendingBlock: null }), `${playerName(state, playerId)} lets it slide.`);
 }
 
 function blockAction(state: HostGameState, block: { actionId: string; blockerId: PlayerId; blockingRole: Role; targetId: PlayerId | null }): HostGameState {
@@ -404,7 +425,10 @@ function blockAction(state: HostGameState, block: { actionId: string; blockerId:
   const roles = blockRolesByAction[pending.actionType] ?? [];
   if (!roles.includes(block.blockingRole)) return state;
 
-  const challengers = eligibleChallengers(state, [pending.actorId, block.blockerId]);
+  // The actor whose action was blocked is the party most interested in
+  // challenging the block claim, so they remain eligible — only the blocker is
+  // excluded (you cannot challenge your own block).
+  const challengers = eligibleChallengers(state, [block.blockerId]);
   return bump(
     state,
     {
@@ -506,6 +530,7 @@ export function reducer(state: HostGameState, event: GameEvent): HostGameState {
         pendingBlock: null,
         pendingBurn: null,
         pendingJugaad: null,
+        blockPasses: [],
         winnerId: null,
       }, 'Game started');
     case 'RESET_GAME':

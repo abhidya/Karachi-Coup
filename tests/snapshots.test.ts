@@ -201,7 +201,10 @@ describe('snapshots', () => {
       },
     });
     expect(toPrivatePlayerState(blocked, toPlayerId('p3')).prompt?.type).toBe('CHALLENGE_BLOCK');
-    expect(toPrivatePlayerState(blocked, toPlayerId('p1')).prompt).toBeNull();
+    // The actor whose action was blocked can also challenge the block claim.
+    expect(toPrivatePlayerState(blocked, toPlayerId('p1')).prompt?.type).toBe('CHALLENGE_BLOCK');
+    // The blocker is the claimant and cannot challenge their own block.
+    expect(toPrivatePlayerState(blocked, toPlayerId('p2')).prompt).toBeNull();
   });
 
   it('private prompt: burn prompt is sent only to burning player', () => {

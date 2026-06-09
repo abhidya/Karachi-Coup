@@ -251,6 +251,9 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
     if (actionType === 'RISHTEDAAR_HELP' && pendingAction.actorId === playerId) {
       return { ok: false, reason: 'Actor cannot block their own Rishtedaar Help.' };
     }
+    if (actionType === 'RISHTEDAAR_HELP' && (state.blockPasses ?? []).includes(playerId)) {
+      return { ok: false, reason: 'You already let this action slide.' };
+    }
     return { ok: true };
   }
   if (message.type === 'PASS_BLOCK') {
@@ -265,6 +268,9 @@ export function validateClientMessage(state: HostGameState, playerId: PlayerId, 
     }
     if (actionType === 'RISHTEDAAR_HELP' && pendingAction.actorId === playerId) {
       return { ok: false, reason: 'Actor cannot pass their own block window.' };
+    }
+    if (actionType === 'RISHTEDAAR_HELP' && (state.blockPasses ?? []).includes(playerId)) {
+      return { ok: false, reason: 'You already let this action slide.' };
     }
     if ((actionType === 'POLICE_WALA_RAID' || actionType === 'BHAI_KA_SCENE') && pendingAction.targetId !== playerId) {
       return { ok: false, reason: 'Only the target may pass that block window.' };

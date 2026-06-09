@@ -20,6 +20,46 @@ describe('reducer blocks', () => {
     expect(blocked.phase).toBe('CHALLENGE_WINDOW');
   });
 
+  it('block window: Rishtedaar Help is not resolved until every eligible blocker passes', () => {
+    const declared = declare(
+      turnState3([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('BHAI')]),
+      'RISHTEDAAR_HELP',
+    );
+    expect(declared.phase).toBe('BLOCK_WINDOW');
+    // A single non-actor passing must not resolve the action for everyone.
+    const onePassed = passBlock(declared, toPlayerId('p2'));
+    expect(onePassed.phase).toBe('BLOCK_WINDOW');
+    expect(onePassed.playersById[toPlayerId('p1')]!.rupees).toBe(2);
+    // Once the last eligible blocker also passes, the action resolves.
+    const allPassed = passBlock(onePassed, toPlayerId('p3'));
+    expect(allPassed.phase).toBe('TURN_START');
+    expect(allPassed.playersById[toPlayerId('p1')]!.rupees).toBe(4);
+  });
+
+  it('block challenge: the blocked actor may challenge the block claim', () => {
+    const declared = declare(
+      turnState3([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')], [card('ZARDAAR_CHOR'), card('BHAI')]),
+      'RISHTEDAAR_HELP',
+    );
+    const blocked = reducer(declared, {
+      type: 'BLOCK',
+      block: {
+        actionId: declared.pendingAction!.actionId,
+        blockerId: toPlayerId('p2'),
+        blockingRole: 'MALIK_SAAB',
+        targetId: null,
+        eligibleChallengers: [],
+        responses: {},
+      },
+    });
+    // The actor whose action was blocked is eligible to challenge the block.
+    expect(blocked.pendingChallenge?.eligibleChallengers).toContain(toPlayerId('p1'));
+    // p2 has no MALIK_SAAB, so the actor (p1) challenging the block must win:
+    // the block falls and the bluffing blocker (p2) burns a card.
+    const challenged = challenge(blocked, toPlayerId('p1'));
+    expect(challenged.pendingBurn?.playerId).toBe(toPlayerId('p2'));
+  });
+
   it('block: Rishtedaar Help cannot be blocked by Police Wala', () => {
     const declared = declare(turnState([card('MALIK_SAAB'), card('BHAI')], [card('MUMMA'), card('POLICE_WALA')]), 'RISHTEDAAR_HELP');
     const blocked = reducer(declared, {
@@ -162,7 +202,9 @@ describe('reducer blocks', () => {
         responses: {},
       },
     });
-    const passed = passChallenge(blocked, toPlayerId('p3'));
+    // Both the third player and the actor (p1) must decline to challenge the
+    // block before it stands and the action is cancelled.
+    const passed = passChallenge(passChallenge(blocked, toPlayerId('p3')), toPlayerId('p1'));
     expect(passed.phase).toBe('TURN_START');
   });
 
@@ -180,7 +222,9 @@ describe('reducer blocks', () => {
         responses: {},
       },
     });
-    const passed = passChallenge(blocked, toPlayerId('p3'));
+    // Both the third player and the actor (p1) must decline to challenge the
+    // block before it stands and the action is cancelled.
+    const passed = passChallenge(passChallenge(blocked, toPlayerId('p3')), toPlayerId('p1'));
     expect(passed.phase).toBe('TURN_START');
   });
 
@@ -198,7 +242,9 @@ describe('reducer blocks', () => {
         responses: {},
       },
     });
-    const passed = passChallenge(blocked, toPlayerId('p3'));
+    // Both the third player and the actor (p1) must decline to challenge the
+    // block before it stands and the action is cancelled.
+    const passed = passChallenge(passChallenge(blocked, toPlayerId('p3')), toPlayerId('p1'));
     expect(passed.phase).toBe('TURN_START');
   });
 
@@ -216,7 +262,9 @@ describe('reducer blocks', () => {
         responses: {},
       },
     });
-    const passed = passChallenge(blocked, toPlayerId('p3'));
+    // Both the third player and the actor (p1) must decline to challenge the
+    // block before it stands and the action is cancelled.
+    const passed = passChallenge(passChallenge(blocked, toPlayerId('p3')), toPlayerId('p1'));
     expect(passed.phase).toBe('TURN_START');
   });
 

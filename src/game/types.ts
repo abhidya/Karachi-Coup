@@ -156,6 +156,8 @@ export interface HostGameState {
   pendingBlock: PendingBlock | null;
   pendingBurn: PendingBurn | null;
   pendingJugaad: PendingJugaad | null;
+  /** Players who have declined to block during the current (multi-blocker) BLOCK_WINDOW. */
+  blockPasses?: PlayerId[];
   log: GameLogEntry[];
   winnerId: PlayerId | null;
 }

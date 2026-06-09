@@ -61,6 +61,7 @@ export function createHostGameState(roomId: string, gameId: string): HostGameSta
     pendingBlock: null,
     pendingBurn: null,
     pendingJugaad: null,
+    blockPasses: [],
     log: [],
     winnerId: null,
   };
