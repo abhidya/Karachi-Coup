@@ -1,5 +1,15 @@
 export const trysteroConfig = {
   appId: 'io.github.abhidya.karachi-coup.v1',
+  // Bundle all ICE candidates into the SDP offer/answer instead of trickling
+  // them as separate signaling messages. Trystero defaults to trickle ICE,
+  // which sends each candidate as its own Nostr event AFTER the SDP. Over the
+  // public Nostr relays those follow-up candidate messages are frequently
+  // delayed or dropped, so peers exchange SDP but never receive each other's
+  // candidates — the connection then fails even on the same LAN ("could not
+  // connect after exchanging SDP"). With trickleIce disabled, Trystero waits
+  // for ICE gathering to finish (capped at 15s) and embeds every candidate in
+  // the single SDP message that reliably reaches the peer.
+  trickleIce: false,
   relayConfig: {
     // Trystero's Nostr strategy defaults to 5 relays. In the 6-client profile
     // that created 35 signaling WebSockets. Three known-working relays preserve
